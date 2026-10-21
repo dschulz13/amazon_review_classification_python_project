@@ -29,70 +29,78 @@ spell = Speller(lang = 'en')
 # Data download from GitHub
 data_full = pd.read_feather("https://github.com/dschulz13/dataset-amazon_trustpilot_reviews/raw/refs/heads/main/amazon_com_reviews_trustpilot_20261017_anon.feather")
 
-# Some format Date column as datetime and filter to use only data
-# since the beginning of the year 2025
-data_full['Date'] = pd.to_datetime(data_full['Date'], format = '%Y-%m-%d')
-data_full = data_full[data_full['Date'] >= '2025-01-01 00:00:00']
-data_full = data_full.reset_index(drop = True)
+# Function to run cleaning steps on Trustpilot outputs
 
-# Combine sentences into one text
-reviews = data_full['Review_Sentences']
-l = len(reviews)
-review_adj = [''] * l
-for i in range(0, l):
-    try:
-        text0 = ''
+def clean_text(dataset, spell, stop_words):
+
+    # Some format Date column as datetime and filter to use only data
+    # since the beginning of the year 2025
+    dataset['Date'] = pd.to_datetime(dataset['Date'], format = '%Y-%m-%d')
+    dataset = dataset[dataset['Date'] >= '2025-01-01 00:00:00']
+    dataset = dataset.reset_index(drop = True)
+
+    # Combine sentences into one text (and also add the review title at the beginning)
+    reviews = dataset['Review_Sentences']
+    l = len(reviews)
+    review_adj = [''] * l
+    for i in range(0, l):
+        try:
+            text0 = dataset['Review_Title'][i]
+            len_list = len(reviews[i])
+            for j in range(0, len_list):
+                text0 = text0 + ' ' + reviews[i][j]
+            review_adj[i] = text0
+        except TypeError:
+            review_adj[i] = dataset['Review_Title'][i]
+
+    dataset['Review_Sentences'] = review_adj
+
+    # Replace emojis by text replacement
+    dataset['Review_Sentences'] = [emoji.demojize(review) for review in dataset['Review_Sentences']]
+    # Replace everything except letters, numbers, whitespace, !, ?, and ' with a whitespace
+    dataset['Review_Sentences'] = dataset['Review_Sentences'].str.replace(r'[^\w\s\'?!]', ' ', regex = True)
+    # Replace all numbers and multiple whitespaces in a row by a single whitespace
+    dataset['Review_Sentences'] = dataset['Review_Sentences'].str.replace(r'[\s0-9]+', ' ', regex = True)
+    # Remove leading and trailing whitespace
+    dataset['Review_Sentences'] = dataset['Review_Sentences'].str.strip()
+    # Make everything lower case
+    dataset['Review_Sentences'] = dataset['Review_Sentences'].str.lower()
+
+    # Create a subobject of the review texts
+    reviews = dataset['Review_Sentences']
+    # Split English contractions into two words, for example "isn't" into "is not"
+    reviews = [contractions.fix(review) for review in reviews]
+    # Now replace all remaining ' by an empty string
+    reviews = [re.sub(r'\'+', '', review) for review in reviews]
+    # Break review texts into individual words
+    reviews = [word_tokenize(review) for review in reviews]
+    # Correct spelling
+    reviews = [[spell(word) for word in review] for review in reviews]
+    # Remove stop words like "and"
+    reviews = [[word for word in word_list if word not in stop_words] for word_list in reviews]
+    # Stemming
+    snowball = SnowballStemmer(language = 'english')
+    reviews = [[snowball.stem(w) for w in review] for review in reviews]
+
+    l = len(reviews)
+    review_adj = [''] * l
+    for i in range(0, l):
         len_list = len(reviews[i])
+        text0 = ''
         for j in range(0, len_list):
             text0 = text0 + ' ' + reviews[i][j]
         review_adj[i] = text0
-    except TypeError:
-        review_adj[i] = ''
 
-data_full['Review_Sentences'] = review_adj
+    dataset['Review_Sentences'] = review_adj
+    dataset['Review_Sentences'] = dataset['Review_Sentences'].str.strip()
+    dataset['Rating_Class'] = 'Bad'
+    dataset.loc[dataset['Review_Score'] >= 4, 'Rating_Class'] = 'Good'
 
-# Replace emojis by text replacement
-data_full['Review_Sentences'] = [emoji.demojize(review) for review in data_full['Review_Sentences']]
-# Replace everything except letters, numbers, whitespace, !, ?, and ' with a whitespace
-data_full['Review_Sentences'] = data_full['Review_Sentences'].str.replace(r'[^\w\s\'?!]', ' ', regex = True)
-# Replace all numbers and multiple whitespaces in a row by a single whitespace
-data_full['Review_Sentences'] = data_full['Review_Sentences'].str.replace(r'[\s0-9]+', ' ', regex = True)
-# Remove leading and trailing whitespace
-data_full['Review_Sentences'] = data_full['Review_Sentences'].str.strip()
-# Make everything lower case
-data_full['Review_Sentences'] = data_full['Review_Sentences'].str.lower()
+    dataset = dataset.drop(['User_ID', 'Date', 'User_Name', 'User_Country', 'Review_Score', 'Review_Title'], axis = 1)
 
-# Create a subobject of the review texts
-reviews = data_full['Review_Sentences']
-# Split English contractions into two words, for example "isn't" into "is not"
-reviews = [contractions.fix(review) for review in reviews]
-# Now replace all remaining ' by an empty string
-reviews = [re.sub(r'\'+', '', review) for review in reviews]
-# Break review texts into individual words
-reviews = [word_tokenize(review) for review in reviews]
-# Correct spelling
-reviews = [[spell(word) for word in review] for review in reviews]
-# Remove stop words like "and"
-reviews = [[word for word in word_list if word not in stop_words] for word_list in reviews]
-# Stemming
-snowball = SnowballStemmer(language = 'english')
-reviews = [[snowball.stem(w) for w in review] for review in reviews]
+    return dataset
 
-l = len(reviews)
-review_adj = [''] * l
-for i in range(0, l):
-    len_list = len(reviews[i])
-    text0 = ''
-    for j in range(0, len_list):
-        text0 = text0 + ' ' + reviews[i][j]
-    review_adj[i] = text0
-
-data_full['Review_Sentences'] = review_adj
-data_full['Review_Sentences'] = data_full['Review_Sentences'].str.strip()
-data_full['Rating_Class'] = 'Bad'
-data_full.loc[data_full['Review_Score'] >= 4, 'Rating_Class'] = 'Good'
-
-data_full = data_full.drop(['User_ID', 'Date', 'User_Name', 'User_Country', 'Review_Score', 'Review_Title'], axis = 1)
+data_full = clean_text(data_full, spell, stop_words)
 
 # Review texts are now fully cleaned and prepared for further analysis
 data_full.to_feather(f'amazon_reviews_cleaned.feather')
@@ -112,10 +120,11 @@ word_counts = Counter(
 frequent_words = {
     word: count
     for word, count in word_counts.items()
-    if count >= 5
+    if count >= min_occ
 }
 
 frequent_words = list(dict.fromkeys(frequent_words))
+frequent_words.sort()
 
 vectorizer = CountVectorizer(
     vocabulary = frequent_words,
@@ -138,6 +147,38 @@ X_train, X_test, y_train, y_test = train_test_split(
     random_state = 1,
     stratify = data_cleaned.Rating_Class.tolist()
 )
+
+### Model 1: Standard logistic regression (as a baseline)
+base_model = LogisticRegression(
+    solver = "saga",
+    C = np.inf,
+    random_state = 1,
+    max_iter = 5000
+)
+
+base_model.fit(X_train, y_train)
+y_pred_base = base_model.predict(X_test)
+base_report = classification_report(y_test, y_pred_base)
+print(base_report)
+
+from sklearn.ensemble import RandomForestClassifier
+
+# Model 2: A basic random forecast classifier
+
+model2 = RandomForestClassifier(
+    criterion = 'entropy',
+    random_state = 1
+)
+
+model2.fit(X_train, y_train)
+pred2 = model2.predict(X_test)
+mod2_report = classification_report(y_test, pred2)
+print(mod2_report)
+
+forest_importances = pd.Series(model2.feature_importances_, index = frequent_words).sort_values(
+    ascending = False
+)
+forest_importances.head(50).plot(kind = 'bar')
 
 # L1-regularized logistic regression
 model = LogisticRegression(
