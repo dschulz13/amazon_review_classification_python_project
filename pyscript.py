@@ -108,40 +108,23 @@ data_full.to_feather(f'amazon_reviews_cleaned.feather')
 del data_full
 gc.collect()
 
+
+######################################################
+
 # Get words that appear at least five times
-min_occ = 5
+
 data_cleaned = pd.read_feather('amazon_reviews_cleaned.feather')
-word_counts = Counter(
-    word
-    for text in data_cleaned.Review_Sentences
-    for word in text.split()
-)
-
-frequent_words = {
-    word: count
-    for word, count in word_counts.items()
-    if count >= min_occ
-}
-
-frequent_words = list(dict.fromkeys(frequent_words))
-frequent_words.sort()
-
-vectorizer = CountVectorizer(
-    vocabulary = frequent_words,
-    tokenizer = str.split,
-    preprocessor = None,
-    token_pattern = None,
-    lowercase = False
-)
-
-dtm = vectorizer.fit_transform(data_cleaned.Review_Sentences.to_numpy())
 
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 
+
+
+dtm = vectorizer.fit_transform(data_cleaned.Review_Sentences.to_numpy())
+
 X_train, X_test, y_train, y_test = train_test_split(
-    dtm,
+    data_cleaned.Review_Sentences.tolist(),
     data_cleaned.Rating_Class.tolist(),
     test_size = 0.1,
     random_state = 1,
@@ -149,12 +132,22 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 ### Model 1: Standard logistic regression (as a baseline)
-base_model = LogisticRegression(
-    solver = "saga",
-    C = np.inf,
-    random_state = 1,
-    max_iter = 5000
-)
+base_model = Pipeline([
+    ('dtm', CountVectorizer(
+        tokenizer = str.split,
+        preprocessor = None,
+        token_pattern = None,
+        lowercase = False,
+        min_df = 5,
+        max_df = 100000000
+    )),
+    ('model', LogisticRegression(
+        solver = "saga",
+        C = np.inf,
+        random_state = 1,
+        max_iter = 5000  
+    ))
+])
 
 base_model.fit(X_train, y_train)
 y_pred_base = base_model.predict(X_test)
@@ -165,10 +158,20 @@ from sklearn.ensemble import RandomForestClassifier
 
 # Model 2: A basic random forecast classifier
 
-model2 = RandomForestClassifier(
-    criterion = 'entropy',
-    random_state = 1
-)
+model2 = Pipeline([
+    ('dtm', CountVectorizer(
+        tokenizer = str.split,
+        preprocessor = None,
+        token_pattern = None,
+        lowercase = False,
+        min_df = 5,
+        max_df = 100000000
+    )),
+    ('model', RandomForestClassifier(
+        criterion = 'entropy',
+        random_state = 1
+    ))
+])
 
 model2.fit(X_train, y_train)
 pred2 = model2.predict(X_test)
@@ -179,6 +182,10 @@ forest_importances = pd.Series(model2.feature_importances_, index = frequent_wor
     ascending = False
 )
 forest_importances.head(50).plot(kind = 'bar')
+
+
+
+####### Need to adjust the following
 
 # L1-regularized logistic regression
 model = LogisticRegression(
