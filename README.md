@@ -19,6 +19,27 @@ entire sentence of the review text. Consequently, the review sentences
 are split into individual strings in the given data. Furthermore, the
 review titles are available in a separate variable `Review_Title`.
 
+Initially, we only keep only reviews starting from January 01, 2025,
+that are thus providing some (debatable) relevance to the present day.
+The goal of the cleaning step is then two-fold: firstly, we wish to
+categorize the star rating into two groups. Those groups will be
+labelled `Good` and `Bad`. A good review is a review with a four- or
+five-start rating. A bad review covers the remaining star ratings. Of
+course other class constructions are also possible and could be checked
+in further analyses. For the prupose of this project, we, however,
+assume that a rating of three stars or less indicates a notable
+dissatisfaction with the companies’ services. Secondly, we clean the
+text data. The following diagram highlights the individual cleaning
+steps. We proceed by combining the review title and the review sentences
+of a given observation into a single string. As the main steps, we
+replace emojis by specific textual representations, remove numbers and
+some punctutation, but not all such as `?` or `!`, remove leading and
+trailing whitespace, turn all letters into lower case, separate word
+contractions, do spelling corrections, remove stop words, and ultimately
+implement word stemming. This form of cleaning can be done on the entire
+data at the same time, as each observation is treated individually and
+the described procedure thus does not produce data leakage.
+
 ``` python
 # Standard libraries
 import re
@@ -43,6 +64,9 @@ nltk.download('stopwords')
 stop_words = set(stopwords.words('english'))
 spell = Speller(lang = 'en')
 ```
+
+The following code chunk provides the main cleaning function for the
+reviews.
 
 ``` python
 def clean_text(dataset, spell, stop_words):
@@ -114,6 +138,11 @@ def clean_text(dataset, spell, stop_words):
 
     return dataset
 ```
+
+After the illustrated setup, the actual data treatment can be summarized
+within the following few lines of code. The result is a cleaned dataset
+`amazon_reviews_cleaned.feather` that can be used for the actual
+analysis.
 
 ``` python
 # Original data download from GitHub
