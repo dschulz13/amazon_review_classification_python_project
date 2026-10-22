@@ -6,13 +6,7 @@ date: today
 date-format: "MMMM DD, YYYY"
 ---
 
-<style>
-    p {
-        text-align: justify;
-        hyphens: auto;
-        word-wrap: break-word; 
-    }
-</style>
+<div align="justify">
 
 # Executive summary
 
@@ -147,3 +141,5 @@ gc.collect()
 
 # Analysis
 
+
+</div>

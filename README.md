@@ -2,13 +2,7 @@
 Dominik Schulz
 October 22, 2026
 
-<style>
-    p {
-        text-align: justify;
-        hyphens: auto;
-        word-wrap: break-word; 
-    }
-</style>
+<div data-align="justify">
 
 # Executive summary
 
@@ -137,3 +131,5 @@ gc.collect()
 ```
 
 # Analysis
+
+</div>
