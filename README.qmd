@@ -1,5 +1,5 @@
 ---
-title: "Identifying Negative Customer Experiences Through Text Classification: A Case Study of Amazon.com Reviews on Trustpilot"
+title: "Identifying Negative Customer Experiences Through Text Classification Using Python: A Case Study of Amazon.com Reviews on Trustpilot"
 format: gfm
 author: "Dominik Schulz"
 date: today

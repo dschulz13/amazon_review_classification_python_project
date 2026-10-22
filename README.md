@@ -1,4 +1,4 @@
-# Identifying Negative Customer Experiences Through Text Classification: A Case Study of Amazon.com Reviews on Trustpilot
+# Identifying Negative Customer Experiences Through Text Classification Using Python: A Case Study of Amazon.com Reviews on Trustpilot
 Dominik Schulz
 October 22, 2026
 
