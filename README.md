@@ -1,10 +1,118 @@
 # Identifying Negative Customer Experiences Through Text Classification Using Python: A Case Study of Amazon.com Reviews on Trustpilot
 Dominik Schulz
-October 22, 2026
+October 23, 2026
 
 <div data-align="justify">
 
 # Executive summary
+
+# Data
+
+The anonymized dataset
+`amazon_com_reviews_trustpilot_20261017_anon.feather` in the GitHub
+repository
+[dschulz13/dataset-amazon_trustpilot_reviews](https://github.com/dschulz13/dataset-amazon_trustpilot_reviews.git)
+is considered. It contains all **32,666 English Trustpilot reviews** for
+**Amazon.com** published between August 27, 2007, and October 17, 2026.
+The data was originally scraped directly from the [Trustpilot webpage of
+Amazon.com](https://de.trustpilot.com/review/www.amazon.com?languages=en)
+using **Python’s Selenium** extension.
+
+For the sake of this project, only the available **data since January
+01, 2025**, is used. This approximately gives a **cross-sectional
+overview of recent customer feedback**. Filtered this way, **9,522
+reviews** remain for the analysis.
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
+``` python
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+import pandas as pd
+import numpy as np
+
+# URL to the data on GitHub
+url = 'https://github.com/dschulz13/dataset-amazon_trustpilot_reviews/raw/refs/heads/main/amazon_com_reviews_trustpilot_20261017_anon.feather'
+
+# Read in the data
+data_filt = pd.read_feather(url)
+# Make Date column a datetime column
+data_filt['Date'] = pd.to_datetime(data_filt['Date'])
+# Keep observations since 2025-01-01 and reset index
+data_filt = (
+    data_filt[data_filt['Date'] >= '2025-01-01']
+        .reset_index(drop = True)
+)
+```
+
+``` python
+# Show general information
+print(data_filt.info())
+print(data_filt[['Date', 'Review_Score']].describe())
+print(data_filt['Review_Sentences'][6])
+```
+
+``` python
+star_counts = data_filt['Review_Score'].value_counts().sort_index(ascending = True)
+
+fig, ax = plt.subplots(1, 1, figsize = (6, 3))
+star_counts.plot(kind = 'bar', ax = ax, color = 'lightblue',
+    edgecolor = 'black', alpha = 1, width = 0.9)
+ax.set_xlabel('Star rating');
+ax.set_ylabel('Number of ratings');
+ax.set_title('Star rating distribution');
+ax.yaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'));
+plt.xticks(rotation = 0, ha = 'center');
+ax.grid(axis = 'y');
+ax.set_axisbelow(True);
+ax.set_ylim(0, 8300);
+for i in range(0, 5):
+    ax.text(x = i, y = star_counts.to_numpy()[i].item() + 300,
+        s = f'{star_counts.to_numpy()[i].item():,}',
+        ha = 'center', va = 'center')
+```
+
+</details>
+
+    <class 'pandas.DataFrame'>
+    RangeIndex: 9522 entries, 0 to 9521
+    Data columns (total 7 columns):
+     #   Column            Non-Null Count  Dtype         
+    ---  ------            --------------  -----         
+     0   User_ID           9522 non-null   int32         
+     1   Date              9522 non-null   datetime64[us]
+     2   User_Name         9522 non-null   str           
+     3   User_Country      9522 non-null   str           
+     4   Review_Score      9522 non-null   int32         
+     5   Review_Title      9522 non-null   str           
+     6   Review_Sentences  9373 non-null   object        
+    dtypes: datetime64[us](1), int32(2), object(1), str(3)
+    memory usage: 951.8+ KB
+    None
+
+
+                                 Date  Review_Score
+    count                        9522   9522.000000
+    mean   2025-12-18 20:42:38.790170      1.552195
+    min           2025-01-01 00:00:00      1.000000
+    25%           2025-07-19 00:00:00      1.000000
+    50%           2026-01-03 00:00:00      1.000000
+    75%           2026-06-01 00:00:00      1.000000
+    max           2026-10-17 00:00:00      5.000000
+    std                           NaN      1.210385
+
+
+    ['You have to spend time checking whether it’s a genuine seller'
+     'I now only shop at Amazon if i need a cheap, temporary item quickly.']
+
+<img src="README_files/figure-commonmark/macro-plot-run-output-1.png"
+data-fig-align="center"
+alt="The distribution of the star ratings in the filtered dataset." />
 
 # Objective
 

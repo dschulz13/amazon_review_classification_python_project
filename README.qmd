@@ -10,6 +10,118 @@ date-format: "MMMM DD, YYYY"
 
 # Executive summary
 
+# Data
+
+The anonymized dataset `amazon_com_reviews_trustpilot_20261017_anon.feather` in the GitHub repository [dschulz13/dataset-amazon_trustpilot_reviews](https://github.com/dschulz13/dataset-amazon_trustpilot_reviews.git) is considered. It contains all **32,666 English Trustpilot reviews** for **Amazon.com** published between August 27, 2007, and October 17, 2026. The data was originally scraped directly from the [Trustpilot webpage of Amazon.com](https://de.trustpilot.com/review/www.amazon.com?languages=en) using **Python's Selenium** extension.
+
+For the sake of this project, only the available **data since January 01, 2025**, is used. This approximately gives a **cross-sectional overview of recent customer feedback**. Filtered this way, **9,522 reviews** remain for the analysis.
+
+<details><summary>Show Python code</summary>
+
+```{python}
+#| echo: True
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+import pandas as pd
+import numpy as np
+
+# URL to the data on GitHub
+url = 'https://github.com/dschulz13/dataset-amazon_trustpilot_reviews/raw/refs/heads/main/amazon_com_reviews_trustpilot_20261017_anon.feather'
+
+# Read in the data
+data_filt = pd.read_feather(url)
+# Make Date column a datetime column
+data_filt['Date'] = pd.to_datetime(data_filt['Date'])
+# Keep observations since 2025-01-01 and reset index
+data_filt = (
+    data_filt[data_filt['Date'] >= '2025-01-01']
+        .reset_index(drop = True)
+)
+
+```
+
+```{python}
+#| echo: True
+#| eval: False
+#| include: True
+#| label: chunk-datainfo
+
+# Show general information
+print(data_filt.info())
+print(data_filt[['Date', 'Review_Score']].describe())
+print(data_filt['Review_Sentences'][6])
+```
+
+
+```{python}
+#| echo: True
+#| eval: False
+#| include: True
+#| label: chunk-scoreplot
+
+star_counts = data_filt['Review_Score'].value_counts().sort_index(ascending = True)
+
+fig, ax = plt.subplots(1, 1, figsize = (6, 3))
+star_counts.plot(kind = 'bar', ax = ax, color = 'lightblue',
+    edgecolor = 'black', alpha = 1, width = 0.9)
+ax.set_xlabel('Star rating');
+ax.set_ylabel('Number of ratings');
+ax.set_title('Star rating distribution');
+ax.yaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'));
+plt.xticks(rotation = 0, ha = 'center');
+ax.grid(axis = 'y');
+ax.set_axisbelow(True);
+ax.set_ylim(0, 8300);
+for i in range(0, 5):
+    ax.text(x = i, y = star_counts.to_numpy()[i].item() + 300,
+        s = f'{star_counts.to_numpy()[i].item():,}',
+        ha = 'center', va = 'center')
+```
+
+</details>
+
+```{python}
+#| echo: False
+#| eval: True
+#| include: True
+#| label: macro-info-run
+
+# Show general information
+print(data_filt.info())
+print('\n')
+print(data_filt[['Date', 'Review_Score']].describe())
+print('\n')
+print(data_filt['Review_Sentences'][6])
+```
+
+```{python}
+#| echo: False
+#| eval: True
+#| include: True
+#| label: macro-plot-run
+#| fig-align: center
+#| fig-cap: "The distribution of the star ratings in the filtered dataset."
+
+star_counts = data_filt['Review_Score'].value_counts().sort_index(ascending = True)
+
+fig, ax = plt.subplots(1, 1, figsize = (6, 3))
+star_counts.plot(kind = 'bar', ax = ax, color = 'lightblue',
+    edgecolor = 'black', alpha = 1, width = 0.9)
+ax.set_xlabel('Star rating');
+ax.set_ylabel('Number of ratings');
+ax.set_title('Star rating distribution');
+ax.yaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'));
+plt.xticks(rotation = 0, ha = 'center');
+ax.grid(axis = 'y');
+ax.set_axisbelow(True);
+ax.set_ylim(0, 8300);
+for i in range(0, 5):
+    ax.text(x = i, y = star_counts.to_numpy()[i].item() + 300,
+        s = f'{star_counts.to_numpy()[i].item():,}',
+        ha = 'center', va = 'center')
+```
+
 # Objective
 
 # Data cleaning
