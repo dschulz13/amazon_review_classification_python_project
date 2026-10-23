@@ -30,6 +30,10 @@ reviews** remain for the analysis.
 Show Python code
 </summary>
 
+With the following code chunk, the dataset is read into Python and
+filtered, so that only reviews published on January 01, 2025, or later
+are kept.
+
 ``` python
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -50,12 +54,18 @@ data_filt = (
 )
 ```
 
+The following code chunk then provides general information about the
+filtered dataset and its variables.
+
 ``` python
 # Show general information
 print(data_filt.info())
 print(data_filt[['Date', 'Review_Score']].describe())
 print(data_filt['Review_Sentences'][6])
 ```
+
+A barplot of the star ratings in the filtered dataset can be produced as
+follows.
 
 ``` python
 star_counts = data_filt['Review_Score'].value_counts().sort_index(ascending = True)
@@ -110,6 +120,27 @@ for i in range(0, 5):
     ['You have to spend time checking whether it’s a genuine seller'
      'I now only shop at Amazon if i need a cheap, temporary item quickly.']
 
+From the data output, we can see that the dataset has the seven
+variables `User_ID`, `Date`, `User_Name`, `User_Country`,
+`Review_Score`, `Review_Title`, and `Review_Sentences`. Each row in the
+dataset is a unique review entry. `User_ID` is an `int` variable that
+uniquely identifies each author (and can be used to see, which person
+wrote multiple reviews). `Date` is a `datetime` variable, while
+`Review_Score` is also an `int` column. `User_Name`, `User_Country`, and
+`Review_Title` are `str` columns containing the author’s user name, the
+author’s registered country, and the the document’s review title,
+respectively. `Review_Sentences` is an `object` column, where in each
+row it contains a list, whose entries are the different review sentences
+as strings.
+
+Only `Review_Sentences` contains missing values sometimes, as review
+author’s must specify a review title, but they are not obligated to
+write a review text. Therefore, in 149 no review text was written.
+
+The star ratings are apparently strongly skewed / imbalanced. The mean
+rating is approx. 1.55, the median and even the 75th percentile of the
+observed rating distribution are simply 1.
+
 <div id="fig-macro-plot-run">
 
 <img
@@ -120,6 +151,20 @@ Figure 2.1: The distribution of the star ratings in the filtered
 dataset.
 
 </div>
+
+<a href="#fig-macro-plot-run" class="quarto-xref">Figure 2.1</a>
+supports the previous statement on the strong imbalance in the data:
+7,480 reviews are one-star reviews, where customers were as dissatisfied
+as possible. The remaining 2,042 reviews are spread across the two- to
+five-star reviews. Given that one-, two-, and five-star reviews appear
+most frequently (with a clear dominance of the one-star reviews), we
+conclude that strong emotional reactions to Amazon’s services, either
+strongly positive or strongly negative, lead to a correspondingly higher
+chance of a review entry on Trustpilot. Since customers with
+intermediate-level (and also to some degree positive) satisfaction do
+not choose to write a review as often, the observed distribution can
+under no circumstances be understood as the real distribution of
+customer satisfaction.
 
 # Objective
 
@@ -133,6 +178,14 @@ entry, where each of the list’s elements is a string representing an
 entire sentence of the review text. Consequently, the review sentences
 are split into individual strings in the given data. Furthermore, the
 review titles are available in a separate variable `Review_Title`.
+
+<div id="fig-cleaning-steps">
+
+![](Data%20cleaning%20steps.png)
+
+Figure 4.1: The data cleaning steps.
+
+</div>
 
 Initially, we only keep only reviews starting from January 01, 2025,
 that are thus providing some (debatable) relevance to the present day.

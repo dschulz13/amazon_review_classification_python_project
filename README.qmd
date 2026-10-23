@@ -20,6 +20,8 @@ For the sake of this project, only the available **data since January 01, 2025**
 
 <details><summary>Show Python code</summary>
 
+With the following code chunk, the dataset is read into Python and filtered, so that only reviews published on January 01, 2025, or later are kept.
+
 ```{python}
 #| echo: True
 
@@ -43,6 +45,8 @@ data_filt = (
 
 ```
 
+The following code chunk then provides general information about the filtered dataset and its variables.
+
 ```{python}
 #| echo: True
 #| eval: False
@@ -55,6 +59,7 @@ print(data_filt[['Date', 'Review_Score']].describe())
 print(data_filt['Review_Sentences'][6])
 ```
 
+A barplot of the star ratings in the filtered dataset can be produced as follows.
 
 ```{python}
 #| echo: True
@@ -97,6 +102,12 @@ print('\n')
 print(data_filt['Review_Sentences'][6])
 ```
 
+From the data output, we can see that the dataset has the seven variables `User_ID`, `Date`, `User_Name`, `User_Country`, `Review_Score`, `Review_Title`, and `Review_Sentences`. Each row in the dataset is a unique review entry. `User_ID` is an `int` variable that uniquely identifies each author (and can be used to see, which person wrote multiple reviews). `Date` is a `datetime` variable, while `Review_Score` is also an `int` column. `User_Name`, `User_Country`, and `Review_Title` are `str` columns containing the author's user name, the author's registered country, and the the document's review title, respectively. `Review_Sentences` is an `object` column, where in each row it contains a list, whose entries are the different review sentences as strings.
+
+Only `Review_Sentences` contains missing values sometimes, as review author's must specify a review title, but they are not obligated to write a review text. Therefore, in 149 no review text was written.
+
+The star ratings are apparently strongly skewed / imbalanced. The mean rating is approx. 1.55, the median and even the 75th percentile of the observed rating distribution are simply 1.
+
 ```{python}
 #| echo: False
 #| eval: True
@@ -124,11 +135,15 @@ for i in range(0, 5):
         ha = 'center', va = 'center')
 ```
 
+@fig-macro-plot-run supports the previous statement on the strong imbalance in the data: 7,480 reviews are one-star reviews, where customers were as dissatisfied as possible. The remaining 2,042 reviews are spread across the two- to five-star reviews. Given that one-, two-, and five-star reviews appear most frequently (with a clear dominance of the one-star reviews), we conclude that strong emotional reactions to Amazon's services, either strongly positive or strongly negative, lead to a correspondingly higher chance of a review entry on Trustpilot. Since customers with intermediate-level (and also to some degree positive) satisfaction do not choose to write a review as often, the observed distribution can under no circumstances be understood as the real distribution of customer satisfaction.
+
 # Objective
 
 # Data cleaning
 
 The available review data in [dschulz13/dataset-amazon_trustpilot_reviews](https://github.com/dschulz13/dataset-amazon_trustpilot_reviews) is unformatted and raw and hence requires preliminary cleaning. Most notably, the variable `Review_Sentences` contains a list for each review entry, where each of the list's elements is a string representing an entire sentence of the review text. Consequently, the review sentences are split into individual strings in the given data. Furthermore, the review titles are available in a separate variable `Review_Title`.
+
+![The data cleaning steps.](Data cleaning steps.png){#fig-cleaning-steps}
 
 Initially, we only keep only reviews starting from January 01, 2025, that are thus providing some (debatable) relevance to the present day. The goal of the cleaning step is then two-fold: firstly, we wish to categorize the star rating into two groups. Those groups will be labelled `Good` and `Bad`. A good review is a review with a four- or five-start rating. A bad review covers the remaining star ratings. Of course other class constructions are also possible and could be checked in further analyses. For the prupose of this project, we, however, assume that a rating of three stars or less indicates a notable dissatisfaction with the companies' services. Secondly, we clean the text data. The following diagram highlights the individual cleaning steps. We proceed by combining the review title and the review sentences of a given observation into a single string. As the main steps, we replace emojis by specific textual representations, remove numbers and some punctutation, but not all such as `?` or `!`, remove leading and trailing whitespace, turn all letters into lower case, separate word contractions, do spelling corrections, remove stop words, and ultimately implement word stemming. This form of cleaning can be done on the entire data at the same time, as each observation is treated individually and the described procedure thus does not produce data leakage.
 
