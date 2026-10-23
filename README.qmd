@@ -4,6 +4,8 @@ format: gfm
 author: "Dominik Schulz"
 date: today
 date-format: "MMMM DD, YYYY"
+crossref:
+  chapters: true
 ---
 
 <div align="justify">
@@ -99,13 +101,13 @@ print(data_filt['Review_Sentences'][6])
 #| echo: False
 #| eval: True
 #| include: True
-#| label: macro-plot-run
+#| label: fig-macro-plot-run
 #| fig-align: center
 #| fig-cap: "The distribution of the star ratings in the filtered dataset."
 
 star_counts = data_filt['Review_Score'].value_counts().sort_index(ascending = True)
 
-fig, ax = plt.subplots(1, 1, figsize = (6, 3))
+fig, ax = plt.subplots(1, 1, figsize = (10, 3))
 star_counts.plot(kind = 'bar', ax = ax, color = 'lightblue',
     edgecolor = 'black', alpha = 1, width = 0.9)
 ax.set_xlabel('Star rating');

@@ -110,9 +110,16 @@ for i in range(0, 5):
     ['You have to spend time checking whether it’s a genuine seller'
      'I now only shop at Amazon if i need a cheap, temporary item quickly.']
 
-<img src="README_files/figure-commonmark/macro-plot-run-output-1.png"
-data-fig-align="center"
-alt="The distribution of the star ratings in the filtered dataset." />
+<div id="fig-macro-plot-run">
+
+<img
+src="README_files/figure-commonmark/fig-macro-plot-run-output-1.png"
+data-fig-align="center" />
+
+Figure 2.1: The distribution of the star ratings in the filtered
+dataset.
+
+</div>
 
 # Objective
 
