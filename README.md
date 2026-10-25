@@ -1,6 +1,6 @@
 # Identifying Negative Customer Experiences Through Text Classification Using Python: A Case Study of Amazon.com Reviews on Trustpilot
 Dominik Schulz
-October 23, 2026
+October 25, 2026
 
 <div data-align="justify">
 
@@ -49,7 +49,7 @@ data_filt = pd.read_feather(url)
 data_filt['Date'] = pd.to_datetime(data_filt['Date'])
 # Keep observations since 2025-01-01 and reset index
 data_filt = (
-    data_filt[data_filt['Date'] >= '2025-01-01']
+    data_filt[data_filt['Date'] >= '2025-01-01 00:00:00']
         .reset_index(drop = True)
 )
 ```
@@ -70,6 +70,10 @@ follows.
 ``` python
 star_counts = data_filt['Review_Score'].value_counts().sort_index(ascending = True)
 
+def star_formatter(x, pos):
+    n_star = int(round(x)) + 1
+    return '★' * n_star 
+
 fig, ax = plt.subplots(1, 1, figsize = (6, 3))
 star_counts.plot(kind = 'bar', ax = ax, color = 'lightblue',
     edgecolor = 'black', alpha = 1, width = 0.9)
@@ -77,6 +81,7 @@ ax.set_xlabel('Star rating');
 ax.set_ylabel('Number of ratings');
 ax.set_title('Star rating distribution');
 ax.yaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'));
+ax.xaxis.set_major_formatter(ticker.FuncFormatter(star_formatter));
 plt.xticks(rotation = 0, ha = 'center');
 ax.grid(axis = 'y');
 ax.set_axisbelow(True);
@@ -135,7 +140,8 @@ as strings.
 
 Only `Review_Sentences` contains missing values sometimes, as review
 author’s must specify a review title, but they are not obligated to
-write a review text. Therefore, in 149 no review text was written.
+write a review text. Therefore, in 149 instances no review text was
+written.
 
 The star ratings are apparently strongly skewed / imbalanced. The mean
 rating is approx. 1.55, the median and even the 75th percentile of the
@@ -168,16 +174,53 @@ customer satisfaction.
 
 # Objective
 
+A crucial task for any company is dealing with customer feedback.
+Commonly, companies offer direct channels to contact customer service
+and receive support, if they are dissatisfied with the companies service
+or product. Unfortunately, companies receive vast amounts of messages
+from customers on a daily basis, some of which do not contain urgent
+issues (or do not state any problems at all) the companies need to
+address immediately. However, each message requires manual inspection
+first to determine the implied urgency; a process which **costs a
+substantial amount of human labor**.
+
+An algorithm inspecting and manually classifying incoming messages would
+filter out messages that do not state any severely negative customer
+experiences and thus **immensely recude the required human input** for
+this task.
+
+Of course, training classification algorithms needs **pre-labelled
+training data**, which is not the case for incoming messages through
+common customer service channels. In case of Amazon.com, we train
+classification models on the **reviews from Trustpilot**, because they
+already include ratings, thus allowing for **simple labelling** of
+positive and negative customer experiences. Nonetheless,
+**transferability** to other channels needs to **inspected elsewhere**.
+
+In the provided context, a natural basline approach is to simply predict
+every review as negative, thus enforcing the manual inspection of every
+message afterwards. Such an approach has both advantages and
+disadvantages: on one hand, no crucial negative review is missed, while
+on the other hand this approach raises many false alarms by labelling
+every non-negative message as negative. Treating four- and five-star
+reviews as `Good` and all other reviews as `Bad`, the share of bad
+reviews is approx. 89%. This native approach consequently leads to an
+**out-of-the-box overall classification accuracy of 89%** and a **recall
+of 100%** on the **`Bad` class** (for stratified test samples), but has
+**poor precision and recall** on the **`Good` class**.
+
+The main objective of this project is hence the development of a
+classification algorithm to classify the Amazon.com reviews into good
+and bad reviews. Overall classification **accuracy** should be
+**improved**, while **ensuring a high precision and recall** on the
+**`Bad` class**, so that (a) the amount of **false alarms** is kept as
+**low** as possible, and (b) actual **bad reviews** are **identified
+reliably**.
+
 # Data cleaning
 
-The available review data in
-[dschulz13/dataset-amazon_trustpilot_reviews](https://github.com/dschulz13/dataset-amazon_trustpilot_reviews)
-is unformatted and raw and hence requires preliminary cleaning. Most
-notably, the variable `Review_Sentences` contains a list for each review
-entry, where each of the list’s elements is a string representing an
-entire sentence of the review text. Consequently, the review sentences
-are split into individual strings in the given data. Furthermore, the
-review titles are available in a separate variable `Review_Title`.
+<a href="#fig-cleaning-steps" class="quarto-xref">Figure 4.1</a>
+demonstrates the cleaning pipeline for the pre-filtered review data.
 
 <div id="fig-cleaning-steps">
 
@@ -187,9 +230,7 @@ Figure 4.1: The data cleaning steps.
 
 </div>
 
-Initially, we only keep only reviews starting from January 01, 2025,
-that are thus providing some (debatable) relevance to the present day.
-The goal of the cleaning step is then two-fold: firstly, we wish to
+The goal of the cleaning step is two-fold: firstly, we wish to
 categorize the star rating into two groups. Those groups will be
 labelled `Good` and `Bad`. A good review is a review with a four- or
 five-start rating. A bad review covers the remaining star ratings. Of
@@ -207,6 +248,13 @@ contractions, do spelling corrections, remove stop words, and ultimately
 implement word stemming. This form of cleaning can be done on the entire
 data at the same time, as each observation is treated individually and
 the described procedure thus does not produce data leakage.
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
 
 ``` python
 # Standard libraries
@@ -238,12 +286,6 @@ reviews.
 
 ``` python
 def clean_text(dataset, spell, stop_words):
-
-    # Some format Date column as datetime and filter to use only data
-    # since the beginning of the year 2025
-    dataset['Date'] = pd.to_datetime(dataset['Date'], format = '%Y-%m-%d')
-    dataset = dataset[dataset['Date'] >= '2025-01-01 00:00:00']
-    dataset = dataset.reset_index(drop = True)
 
     # Combine sentences into one text (and also add the review title at the beginning)
     reviews = dataset['Review_Sentences']
@@ -313,19 +355,18 @@ within the following few lines of code. The result is a cleaned dataset
 analysis.
 
 ``` python
-# Original data download from GitHub
-data_full = pd.read_feather("https://github.com/dschulz13/dataset-amazon_trustpilot_reviews/raw/refs/heads/main/amazon_com_reviews_trustpilot_20261017_anon.feather")
-
 # Run cleaning steps on the data
-data_full = clean_text(data_full, spell, stop_words)
+data_filt = clean_text(data_filt, spell, stop_words)
 
 # Review texts are now fully cleaned and prepared for further analysis
-data_full.to_feather(f'amazon_reviews_cleaned.feather')
+data_filt.to_feather(f'amazon_reviews_cleaned.feather')
 
 # Delete data from memory
-del data_full
+del data_filt
 gc.collect()
 ```
+
+</details>
 
 # Analysis
 
