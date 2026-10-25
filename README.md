@@ -8,8 +8,9 @@ October 25, 2026
 - [4 Data cleaning](#4-data-cleaning)
 - [5 Analysis](#5-analysis)
   - [5.1 Train-test split](#51-train-test-split)
-  - [5.2 Baseline prediction](#52-baseline-prediction)
-  - [5.3 Logistic regression](#53-logistic-regression)
+  - [5.2 Word cloud](#52-word-cloud)
+  - [5.3 Baseline prediction](#53-baseline-prediction)
+  - [5.4 Logistic regression](#54-logistic-regression)
 
 # 1 Executive summary
 
@@ -422,7 +423,61 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 </details>
 
-## 5.2 Baseline prediction
+## 5.2 Word cloud
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
+``` python
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+import re
+
+all_text = ' '.join(X_train)
+
+x, y = np.ogrid[:1000, :1000]
+mask = (x - 500) ** 2 + (y - 500) ** 2 > 400 ** 2
+mask = 255 * mask.astype(int)
+
+wcloud = (WordCloud(
+    background_color = "white",
+    collocations = False,
+    random_state = 2,
+    colormap = "coolwarm",
+    mask = mask)
+        .generate(all_text)
+)
+plt.imshow(wcloud, interpolation = "bilinear")
+plt.axis("off")
+plt.show()
+```
+
+</details>
+
+<div id="fig-wordcloud">
+
+<img src="README_files/figure-commonmark/fig-wordcloud-output-1.png"
+data-fig-align="center" />
+
+Figure 5.1: A word cloud of the 200 most frequent training data word
+stems.
+
+</div>
+
+<a href="#fig-wordcloud" class="quarto-xref">Figure 5.1</a> represents a
+word cloud of the 200 most frequent word stems in the training data. It
+provides an overview of important terms to look out for in the data.
+Obviously, `amazon` appears most often, followed by stems such as
+`custom` (customer/s), `deliveri` (delivery/deliveries) and `order`.
+Frequent terms also include `refund`, `return`, `time`, `day`, `servic`,
+hinting the importance of short-term deliveries and of return / refund
+policies.
+
+## 5.3 Baseline prediction
 
 As indicated earlier, the baseline approach of simply always predicting
 the `Bad` class results in a high overall classification accuracy of 89%
@@ -464,12 +519,13 @@ print(classification_report(y_test, pred_baseline,
        macro avg       0.45      0.50      0.47      1048
     weighted avg       0.79      0.89      0.84      1048
 
-## 5.3 Logistic regression
+## 5.4 Logistic regression
 
 ``` python
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV, TunedThresholdClassifierCV, StratifiedKFold
+from sklearn.metrics import make_scorer, balanced_accuracy_score
 from imblearn.pipeline import Pipeline
 
 ### General settings for CountVectorizer
@@ -486,6 +542,8 @@ C_val = np.inf
 random_state = 1
 max_iter = 5000
 class_weight = 'balanced'
+
+bas_adj = make_scorer(balanced_accuracy_score) 
 
 model1 = Pipeline([
     # Create word frequency variables for each review from the training set
@@ -506,17 +564,24 @@ model1 = Pipeline([
     ))
 ])
 
-model1.fit(X_train, y_train)
-pred_model1 = model1.predict(X_test)
+model1_tuned = TunedThresholdClassifierCV(
+    estimator = model1,
+    scoring = bas_adj,
+    cv = 3,
+    thresholds = 50,
+    n_jobs = 1
+)
+model1_tuned.fit(X_train, y_train)
+pred_model1 = model1_tuned.predict(X_test)
 report_model1 = classification_report(y_test, pred_model1)
 print(report_model1)
 ```
 
                   precision    recall  f1-score   support
 
-             Bad       0.97      0.97      0.97       933
-            Good       0.75      0.77      0.76       115
+             Bad       0.98      0.91      0.94       933
+            Good       0.54      0.88      0.67       115
 
-        accuracy                           0.95      1048
-       macro avg       0.86      0.87      0.87      1048
-    weighted avg       0.95      0.95      0.95      1048
+        accuracy                           0.90      1048
+       macro avg       0.76      0.89      0.81      1048
+    weighted avg       0.94      0.90      0.91      1048
