@@ -2,11 +2,18 @@
 Dominik Schulz
 October 25, 2026
 
-<div data-align="justify">
+- [1 Executive summary](#1-executive-summary)
+- [2 Data](#2-data)
+- [3 Objective](#3-objective)
+- [4 Data cleaning](#4-data-cleaning)
+- [5 Analysis](#5-analysis)
+  - [5.1 Train-test split](#51-train-test-split)
+  - [5.2 Baseline prediction](#52-baseline-prediction)
+  - [5.3 Logistic regression](#53-logistic-regression)
 
-# Executive summary
+# 1 Executive summary
 
-# Data
+# 2 Data
 
 The anonymized dataset
 `amazon_com_reviews_trustpilot_20261017_anon.feather` in the GitHub
@@ -172,7 +179,7 @@ not choose to write a review as often, the observed distribution can
 under no circumstances be understood as the real distribution of
 customer satisfaction.
 
-# Objective
+# 3 Objective
 
 A crucial task for any company is dealing with customer feedback.
 Commonly, companies offer direct channels to contact customer service
@@ -217,7 +224,7 @@ and bad reviews. Overall classification **accuracy** should be
 **low** as possible, and (b) actual **bad reviews** are **identified
 reliably**.
 
-# Data cleaning
+# 4 Data cleaning
 
 <a href="#fig-cleaning-steps" class="quarto-xref">Figure 4.1</a>
 demonstrates the cleaning pipeline for the pre-filtered review data.
@@ -368,6 +375,148 @@ gc.collect()
 
 </details>
 
-# Analysis
+# 5 Analysis
 
-</div>
+Throughout the analysis, we derive numerical features from 1-grams of
+the cleaned review texts, i.e. variables taken from individual words.
+This keeps the feature engineering simple enough, avoids high
+dimensionality in the feature space and reduces computation times. More
+in-depth approaches not considered here may also include 2-grams or
+3-grams, and thus variables derived from chains of multiple words.
+
+## 5.1 Train-test split
+
+The data is split into a training set and a test set before any further
+preprocessing of the cleaned texts. To ensure that the test set contains
+at least 1,000 observations, we consider a **test share** of **11%**,
+resulting in a **test sample size** of **1,048**. For simplicity, we
+only consider such a fixed split; more elaborate but also time- and
+memory-consuming approaches use nested cross-validation ideas with
+multiple training-test splits. For the purpose of this project, the size
+of the random test sample is, however, large enough to allow for a
+generalization of the findings. The split here is stratified, ensuring
+that both the training and the test sample reflect the 11% and 89%
+shares of `Good` and `Bad` reviews in the total dataset.
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
+``` python
+from sklearn.model_selection import train_test_split
+import pandas as pd
+
+data_all = pd.read_feather(f'amazon_reviews_cleaned.feather')
+
+X_train, X_test, y_train, y_test = train_test_split(
+    data_all.Review_Sentences.tolist(),
+    data_all.Rating_Class.tolist(),
+    test_size = 0.11,
+    random_state = 1,
+    stratify = data_all.Rating_Class.tolist()
+)
+```
+
+</details>
+
+## 5.2 Baseline prediction
+
+As indicated earlier, the baseline approach of simply always predicting
+the `Bad` class results in a high overall classification accuracy of 89%
+(all `Bad` reviews are classified correctly, whereas all `Good` reviews
+are classified incorrectly). Hence, for the `Bad` class, we achieve with
+minimum effort high scores (precision: 0.89; recall: 1.00), while the
+method produces the worst possible scores for the `Good` class
+(precision: 0.00; recall: 0.00). Note that for the precision to be 0.00,
+we defined a division by zero to be equal to zero in the reporting
+function.
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
+``` python
+from sklearn.metrics import classification_report
+import numpy as np
+
+pred_baseline = np.array(['Bad'] * len(y_test))
+```
+
+``` python
+print(classification_report(y_test, pred_baseline,
+        zero_division = 0.0))
+```
+
+</details>
+
+                  precision    recall  f1-score   support
+
+             Bad       0.89      1.00      0.94       933
+            Good       0.00      0.00      0.00       115
+
+        accuracy                           0.89      1048
+       macro avg       0.45      0.50      0.47      1048
+    weighted avg       0.79      0.89      0.84      1048
+
+## 5.3 Logistic regression
+
+``` python
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV, TunedThresholdClassifierCV, StratifiedKFold
+from imblearn.pipeline import Pipeline
+
+### General settings for CountVectorizer
+tokenizer = str.split    # create words by splitting cleaned texts by whitespace
+preprocessor = None      # no additional preprocessing
+token_pattern = None     # no further token identification
+lowercase = False        # no further lower case transformation need
+min_df = 10              # consider only words appearing in at least ten documents
+max_df = 1000000000      # (practically) no limit for number of documents with a specific word
+
+### Base settings for logistic regression
+solver = 'saga'
+C_val = np.inf
+random_state = 1
+max_iter = 5000
+class_weight = 'balanced'
+
+model1 = Pipeline([
+    # Create word frequency variables for each review from the training set
+    ('dtm', CountVectorizer(
+        tokenizer = tokenizer,    
+        preprocessor = preprocessor,      
+        token_pattern = token_pattern,     
+        lowercase = lowercase,        
+        min_df = min_df,               
+        max_df = max_df        
+    )),
+    # Model definition
+    ('model', LogisticRegression(
+        solver = solver,     # SAGA solver (good for large datasets with many variables)
+        C = C_val,          # unlimited inverse penalty implies standard logistic regression
+        random_state = random_state,
+        max_iter = max_iter
+    ))
+])
+
+model1.fit(X_train, y_train)
+pred_model1 = model1.predict(X_test)
+report_model1 = classification_report(y_test, pred_model1)
+print(report_model1)
+```
+
+                  precision    recall  f1-score   support
+
+             Bad       0.97      0.97      0.97       933
+            Good       0.75      0.77      0.76       115
+
+        accuracy                           0.95      1048
+       macro avg       0.86      0.87      0.87      1048
+    weighted avg       0.95      0.95      0.95      1048
