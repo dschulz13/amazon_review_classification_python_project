@@ -1,6 +1,6 @@
 # Identifying Negative Customer Experiences Through Text Classification Using Python: A Case Study of Amazon.com Reviews on Trustpilot
 Dominik Schulz
-October 25, 2026
+October 26, 2026
 
 - [1 Executive summary](#1-executive-summary)
 - [2 Data](#2-data)
@@ -521,6 +521,38 @@ print(classification_report(y_test, pred_baseline,
 
 ## 5.4 Logistic regression
 
+### 5.4.1 Estimation framework
+
+<div id="fig-cv-steps">
+
+![](CV%20framework.png)
+
+Figure 5.2: The validation and testing framework.
+
+</div>
+
+### 5.4.2 No standardization of word frequencies
+
+As a first, more elaborate approach, a fine-tuned regularized logistic
+regression is implemented. In the outer cross-validation, we tune the
+penalty term (`C`), the class weights (`class_weight`), and the form of
+regularization (`l1_ratio`), while the inner cross-validation handles
+the probability threshold selection. Ultimately, `C = 0.1`,
+`class_weight = {'Bad': 1.0, 'Good': 4.0}`, and `l1_ratio = 0.0` are
+selected, corresponding to a strongly regularized ridge logistic
+regression, where incorrect classification of the `Good` class costs
+four times more than an incorrect classification of the `Bad` class.
+With these hyperparameters, the model is then refitted to the entire
+training sample, while re-selecting the probability threshold with
+cross-validation to be approx. 0.3878.
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
 ``` python
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -538,10 +570,8 @@ max_df = 1000000000      # (practically) no limit for number of documents with a
 
 ### Base settings for logistic regression
 solver = 'saga'
-C_val = np.inf
 random_state = 1
 max_iter = 5000
-class_weight = 'balanced'
 
 bas_adj = make_scorer(balanced_accuracy_score) 
 
@@ -557,31 +587,129 @@ model1 = Pipeline([
     )),
     # Model definition
     ('model', LogisticRegression(
-        solver = solver,     # SAGA solver (good for large datasets with many variables)
-        C = C_val,          # unlimited inverse penalty implies standard logistic regression
+        solver = solver,
         random_state = random_state,
         max_iter = max_iter
     ))
 ])
 
-model1_tuned = TunedThresholdClassifierCV(
+model1_tuned_inner = TunedThresholdClassifierCV(
     estimator = model1,
     scoring = bas_adj,
-    cv = 3,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
     thresholds = 50,
+    refit = True,
     n_jobs = 1
 )
+
+model1_params = {
+    'estimator__model__C': [0.01, 0.1, 1, 10, 100],
+    'estimator__model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}],
+    'estimator__model__l1_ratio': [0.0, 1.0]
+}
+
+model1_tuned = GridSearchCV(
+    model1_tuned_inner,
+    model1_params,
+    scoring = bas_adj,
+    cv = StratifiedKFold(5, random_state = 1, shuffle = True),
+    n_jobs = -1
+)
+
 model1_tuned.fit(X_train, y_train)
 pred_model1 = model1_tuned.predict(X_test)
 report_model1 = classification_report(y_test, pred_model1)
 print(report_model1)
 ```
 
+</details>
+
+The test sample evaluation is summarized in the following Python report.
+In comparison to the naive approach, the overall accuracy could be
+increased from 0.89 to 0.93. The average (unweighted) recall increased
+from 0.5 to 0.91. Most indicators increase, with the exception of the
+`Bad` class recall, which decreased from 1.00 to 0.93: the improvement
+in the other measures comes at the cost of not being able to identify
+all the `Bad` labels.
+
                   precision    recall  f1-score   support
 
-             Bad       0.98      0.91      0.94       933
-            Good       0.54      0.88      0.67       115
+             Bad       0.98      0.93      0.96       933
+            Good       0.62      0.88      0.73       115
 
-        accuracy                           0.90      1048
-       macro avg       0.76      0.89      0.81      1048
-    weighted avg       0.94      0.90      0.91      1048
+        accuracy                           0.93      1048
+       macro avg       0.80      0.91      0.84      1048
+    weighted avg       0.94      0.93      0.93      1048
+
+### 5.4.3 Standardization of word frequencies
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
+``` python
+from sklearn.feature_extraction.text import TfidfTransformer
+
+model2 = Pipeline([
+    ('dtm', CountVectorizer(
+        tokenizer = tokenizer,    
+        preprocessor = preprocessor,      
+        token_pattern = token_pattern,     
+        lowercase = lowercase,        
+        min_df = min_df,               
+        max_df = max_df        
+    )),
+    ('standard', TfidfTransformer(
+        use_idf = True,
+        norm = "l2", 
+        sublinear_tf = True
+    )),
+    ('model', LogisticRegression(
+        solver = solver,
+        random_state = random_state,
+        max_iter = max_iter
+    ))
+])
+
+model2_tuned_inner = TunedThresholdClassifierCV(
+    estimator = model2,
+    scoring = bas_adj,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    thresholds = 50,
+    refit = True,
+    n_jobs = 1
+)
+
+model2_params = {
+    'estimator__model__C': [0.01, 0.1, 1, 10, 100],
+    'estimator__model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}],
+    'estimator__model__l1_ratio': [0.0, 1.0]
+}
+
+model2_tuned = GridSearchCV(
+    model2_tuned_inner,
+    model2_params,
+    scoring = bas_adj,
+    cv = StratifiedKFold(5, random_state = 1, shuffle = True),
+    n_jobs = -1
+)
+
+model2_tuned.fit(X_train, y_train)
+pred_model2 = model2_tuned.predict(X_test)
+report_model2 = classification_report(y_test, pred_model2)
+print(report_model2)
+```
+
+</details>
+
+                  precision    recall  f1-score   support
+
+             Bad       0.99      0.92      0.95       933
+            Good       0.58      0.91      0.71       115
+
+        accuracy                           0.92      1048
+       macro avg       0.79      0.92      0.83      1048
+    weighted avg       0.94      0.92      0.93      1048
