@@ -232,7 +232,8 @@ demonstrates the cleaning pipeline for the pre-filtered review data.
 
 <div id="fig-cleaning-steps">
 
-![](Data%20cleaning%20steps.png)
+<img src="Data%20cleaning%20steps.png"
+style="width:60.0%;height:60.0%" />
 
 Figure 4.1: The data cleaning steps.
 

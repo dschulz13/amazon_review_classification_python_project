@@ -165,7 +165,7 @@ The main objective of this project is hence the development of a classification 
 
 @fig-cleaning-steps demonstrates the cleaning pipeline for the pre-filtered review data.
 
-![The data cleaning steps.](Data cleaning steps.png){#fig-cleaning-steps}
+![The data cleaning steps.](Data cleaning steps.png){#fig-cleaning-steps height=60% width=60%}
 
 The goal of the cleaning step is two-fold: firstly, we wish to categorize the star rating into two groups. Those groups will be labelled `Good` and `Bad`. A good review is a review with a four- or five-start rating. A bad review covers the remaining star ratings. Of course other class constructions are also possible and could be checked in further analyses. For the prupose of this project, we, however, assume that a rating of three stars or less indicates a notable dissatisfaction with the companies' services. Secondly, we clean the text data. The following diagram highlights the individual cleaning steps. We proceed by combining the review title and the review sentences of a given observation into a single string. As the main steps, we replace emojis by specific textual representations, remove numbers and some punctutation, but not all such as `?` or `!`, remove leading and trailing whitespace, turn all letters into lower case, separate word contractions, do spelling corrections, remove stop words, and ultimately implement word stemming. This form of cleaning can be done on the entire data at the same time, as each observation is treated individually and the described procedure thus does not produce data leakage.
 
