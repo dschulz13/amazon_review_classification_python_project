@@ -147,7 +147,7 @@ for i in range(0, 5):
         ha = 'center', va = 'center')
 ```
 
-@fig-macro-plot-run supports the previous statement on the strong imbalance in the data: 7,480 reviews are one-star reviews, where customers were as dissatisfied as possible. The remaining 2,042 reviews are spread across the two- to five-star reviews. Given that one-, two-, and five-star reviews appear most frequently (with a clear dominance of the one-star reviews), we conclude that strong emotional reactions to Amazon's services, either strongly positive or strongly negative, lead to a correspondingly higher chance of a review entry on Trustpilot. Since customers with intermediate-level (and also to some degree positive) satisfaction do not choose to write a review as often, the observed distribution can under no circumstances be understood as the real distribution of customer satisfaction.
+@fig-macro-plot-run supports the previous statement on the strong imbalance in the data: 7,688 reviews are one-star reviews, where customers were as dissatisfied as possible. The remaining 2,000 reviews are spread across the two- to five-star reviews. Given that one-, two-, and five-star reviews appear most frequently (with a clear dominance of the one-star reviews), we conclude that strong emotional reactions to Amazon's services, either strongly positive or strongly negative, lead to a correspondingly higher chance of a review entry on Trustpilot. Since customers with intermediate-level (and also to some degree positive) satisfaction do not choose to write a review as often, the observed distribution can under no circumstances be understood as the real distribution of customer satisfaction.
 
 # 3 Objective
 
@@ -297,7 +297,7 @@ Throughout the analysis, we derive numerical features from 1-grams of the cleane
 
 ## 5.1 Train-test split
 
-The data is split into a training set and a test set before any further preprocessing of the cleaned texts. To ensure that the test set contains at least 1,000 observations, we consider a **test share** of **11%**, resulting in a **test sample size** of **1,048**. For simplicity, we only consider such a fixed split; more elaborate but also time- and memory-consuming approaches use nested cross-validation ideas with multiple training-test splits. For the purpose of this project, the size of the random test sample is, however, large enough to allow for a generalization of the findings. The split here is stratified, ensuring that both the training and the test sample reflect the 11% and 89% shares of `Good` and `Bad` reviews in the total dataset.
+The data is split into a training set and a test set before any further preprocessing of the cleaned texts. To ensure that the test set contains at least 1,000 observations, we consider a **test share** of **11%**, resulting in a **test sample size** of **1,066**. For simplicity, we only consider such a fixed split; more elaborate but also time- and memory-consuming approaches use nested cross-validation ideas with multiple training-test splits. For the purpose of this project, the size of the random test sample is, however, large enough to allow for a generalization of the findings. The split here is stratified, ensuring that both the training and the test sample reflect the 11% and 89% shares of `Good` and `Bad` reviews in the total dataset.
 
 <details><summary>Show Python code</summary>
 
@@ -423,7 +423,7 @@ print(classification_report(y_test, pred_baseline,
 
 ### 5.4.2 No standardization of word frequencies
 
-As a first, more elaborate approach, a fine-tuned regularized logistic regression is implemented. In the outer cross-validation, we tune the penalty term (`C`), the class weights (`class_weight`), and the form of regularization (`l1_ratio`), while the inner cross-validation handles the probability threshold selection. Ultimately, `C = 0.1`, `class_weight = {'Bad': 1.0, 'Good': 4.0}`, and `l1_ratio = 0.0` are selected, corresponding to a strongly regularized ridge logistic regression, where incorrect classification of the `Good` class costs four times more than an incorrect classification of the `Bad` class. With these hyperparameters, the model is then refitted to the entire training sample, while re-selecting the probability threshold with cross-validation to be approx. 0.3878. 
+As a first, more elaborate approach, a fine-tuned regularized logistic regression is implemented. In the outer cross-validation, we tune the penalty term (`C`), the class weights (`class_weight`), and the form of regularization (`l1_ratio`), while the inner cross-validation handles the probability threshold selection. Ultimately, `C = 0.1`, `class_weight = 'balanced'`, and `l1_ratio = 0.0` are selected, corresponding to a strongly regularized ridge logistic regression, where incorrect classification of the `Good` class costs 8.5 times more than an incorrect classification of the `Bad` class. With these hyperparameters, the model is then refitted to the entire training sample, while re-selecting the probability threshold with cross-validation to be approx. 0.4490. 
 
 <details><summary>Show Python code</summary>
 
@@ -501,7 +501,7 @@ print(report_model1)
 
 </details>
 
-The test sample evaluation is summarized in the following Python report. In comparison to the naive approach, the overall accuracy could be increased from 0.89 to 0.93. The average (unweighted) recall increased from 0.5 to 0.91. Most indicators increase, with the exception of the `Bad` class recall, which decreased from 1.00 to 0.93: the improvement in the other measures comes at the cost of not being able to identify all the `Bad` labels.
+The test sample evaluation is summarized in the following Python report. In comparison to the naive approach, the overall accuracy could be increased from 0.89 to 0.92. The average (unweighted) recall increased from 0.5 to 0.89. Most indicators increase, with the exception of the `Bad` class recall, which decreased from 1.00 to 0.93: the improvement in the other measures comes at the cost of not being able to identify all the `Bad` labels.
 
 ```{python}
 #| echo: False

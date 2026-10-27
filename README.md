@@ -1,6 +1,6 @@
 # Identifying Negative Customer Experiences Through Text Classification Using Python: A Case Study of Amazon.com Reviews on Trustpilot
 Dominik Schulz
-October 26, 2026
+October 27, 2026
 
 - [1 Executive summary](#1-executive-summary)
 - [2 Data](#2-data)
@@ -17,19 +17,19 @@ October 26, 2026
 # 2 Data
 
 The anonymized dataset
-`amazon_com_reviews_trustpilot_20261017_anon.feather` in the GitHub
+`amazon_com_reviews_trustpilot_20261026_anon.feather` in the GitHub
 repository
 [dschulz13/dataset-amazon_trustpilot_reviews](https://github.com/dschulz13/dataset-amazon_trustpilot_reviews.git)
-is considered. It contains all **32,666 English Trustpilot reviews** for
-**Amazon.com** published between August 27, 2007, and October 17, 2026.
+is considered. It contains all **32,632 English Trustpilot reviews** for
+**Amazon.com** published between August 27, 2007, and October 26, 2026.
 The data was originally scraped directly from the [Trustpilot webpage of
 Amazon.com](https://de.trustpilot.com/review/www.amazon.com?languages=en)
 using **Python’s Selenium** extension.
 
-For the sake of this project, only the available **data since January
-01, 2025**, is used. This approximately gives a **cross-sectional
-overview of recent customer feedback**. Filtered this way, **9,522
-reviews** remain for the analysis.
+For the sake of this project, only the available **reviews published
+since January 01, 2025** are used. This approximately gives a
+**cross-sectional overview of recent customer feedback**. Filtered this
+way, **9,688 reviews** remain for the analysis.
 
 <details>
 
@@ -49,15 +49,15 @@ import pandas as pd
 import numpy as np
 
 # URL to the data on GitHub
-url = 'https://github.com/dschulz13/dataset-amazon_trustpilot_reviews/raw/refs/heads/main/amazon_com_reviews_trustpilot_20261017_anon.feather'
+url = 'https://github.com/dschulz13/dataset-amazon_trustpilot_reviews/raw/refs/heads/main/amazon_com_reviews_trustpilot_20261026_anon.feather'
 
 # Read in the data
 data_filt = pd.read_feather(url)
 # Make Date column a datetime column
-data_filt['Date'] = pd.to_datetime(data_filt['Date'])
+data_filt['Review_Date'] = pd.to_datetime(data_filt['Review_Date'], utc = True, format = '%Y-%m-%d %H:%M:%S')
 # Keep observations since 2025-01-01 and reset index
 data_filt = (
-    data_filt[data_filt['Date'] >= '2025-01-01 00:00:00']
+    data_filt[data_filt['Review_Date'] >= '2025-01-01 00:00:00']
         .reset_index(drop = True)
 )
 ```
@@ -68,7 +68,7 @@ filtered dataset and its variables.
 ``` python
 # Show general information
 print(data_filt.info())
-print(data_filt[['Date', 'Review_Score']].describe())
+print(data_filt[['Review_Date', 'Review_Score']].describe())
 print(data_filt['Review_Sentences'][6])
 ```
 
@@ -103,56 +103,61 @@ for i in range(0, 5):
 </details>
 
     <class 'pandas.DataFrame'>
-    RangeIndex: 9522 entries, 0 to 9521
-    Data columns (total 7 columns):
-     #   Column            Non-Null Count  Dtype         
-    ---  ------            --------------  -----         
-     0   User_ID           9522 non-null   int32         
-     1   Date              9522 non-null   datetime64[us]
-     2   User_Name         9522 non-null   str           
-     3   User_Country      9522 non-null   str           
-     4   Review_Score      9522 non-null   int32         
-     5   Review_Title      9522 non-null   str           
-     6   Review_Sentences  9373 non-null   object        
-    dtypes: datetime64[us](1), int32(2), object(1), str(3)
-    memory usage: 951.8+ KB
+    RangeIndex: 9688 entries, 0 to 9687
+    Data columns (total 8 columns):
+     #   Column            Non-Null Count  Dtype              
+    ---  ------            --------------  -----              
+     0   User_ID           9688 non-null   int32              
+     1   Review_Date       9688 non-null   datetime64[us, UTC]
+     2   Experience_Date   9688 non-null   str                
+     3   User_Name         9688 non-null   str                
+     4   User_Country      9688 non-null   str                
+     5   Review_Score      9688 non-null   int32              
+     6   Review_Title      9688 non-null   str                
+     7   Review_Sentences  9551 non-null   object             
+    dtypes: datetime64[us, UTC](1), int32(2), object(1), str(4)
+    memory usage: 1.1+ MB
     None
 
 
-                                 Date  Review_Score
-    count                        9522   9522.000000
-    mean   2025-12-18 20:42:38.790170      1.552195
-    min           2025-01-01 00:00:00      1.000000
-    25%           2025-07-19 00:00:00      1.000000
-    50%           2026-01-03 00:00:00      1.000000
-    75%           2026-06-01 00:00:00      1.000000
-    max           2026-10-17 00:00:00      5.000000
-    std                           NaN      1.210385
+           Review_Score
+    count   9688.000000
+    mean       1.529727
+    std        1.190940
+    min        1.000000
+    25%        1.000000
+    50%        1.000000
+    75%        1.000000
+    max        5.000000
 
 
-    ['You have to spend time checking whether it’s a genuine seller'
-     'I now only shop at Amazon if i need a cheap, temporary item quickly.']
+    ['I have to say that they the make mistakes but have always made up for them with me'
+     "I've gotten things for free because they were late"
+     'The offer 0% interest for 6 months and everything comes so fast'
+     'Whenever I order from another company, I realize just how much more efficient and accommodating Amazon is'
+     "And I hope this doesn't infuriate anyone on here who's had real problems with them, I'm just being honest"
+     "I almost always come to Trust Pilot to complain but I came here today because I was curious of what Amazon's average review score was and must say that I'm shocked because I can't imagine better customer service."]
 
-From the data output, we can see that the dataset has the seven
-variables `User_ID`, `Date`, `User_Name`, `User_Country`,
-`Review_Score`, `Review_Title`, and `Review_Sentences`. Each row in the
-dataset is a unique review entry. `User_ID` is an `int` variable that
-uniquely identifies each author (and can be used to see, which person
-wrote multiple reviews). `Date` is a `datetime` variable, while
-`Review_Score` is also an `int` column. `User_Name`, `User_Country`, and
-`Review_Title` are `str` columns containing the author’s user name, the
-author’s registered country, and the the document’s review title,
-respectively. `Review_Sentences` is an `object` column, where in each
-row it contains a list, whose entries are the different review sentences
-as strings.
+From the data output, we can see that the dataset has the eight
+variables `User_ID`, `Review_Date`, `Experience_Date`, `User_Name`,
+`User_Country`, `Review_Score`, `Review_Title`, and `Review_Sentences`.
+Each row in the dataset is a unique review entry. `User_ID` is an `int`
+variable that uniquely identifies each author (and can be used to see,
+which person wrote multiple reviews). `Review_Date` is a `datetime`
+variable, while `Experience_Date` is a `str` variable. `Review_Score` is
+also an `int` column. `User_Name`, `User_Country`, and `Review_Title`
+are `str` columns containing the author’s user name, the author’s
+registered country, and the the document’s review title, respectively.
+`Review_Sentences` is an `object` column, where in each row it contains
+a list, whose entries are the different review sentences as strings.
 
 Only `Review_Sentences` contains missing values sometimes, as review
 author’s must specify a review title, but they are not obligated to
-write a review text. Therefore, in 149 instances no review text was
+write a review text. Therefore, in 137 instances no review text was
 written.
 
 The star ratings are apparently strongly skewed / imbalanced. The mean
-rating is approx. 1.55, the median and even the 75th percentile of the
+rating is approx. 1.53, the median and even the 75th percentile of the
 observed rating distribution are simply 1.
 
 <div id="fig-macro-plot-run">
@@ -168,8 +173,8 @@ dataset.
 
 <a href="#fig-macro-plot-run" class="quarto-xref">Figure 2.1</a>
 supports the previous statement on the strong imbalance in the data:
-7,480 reviews are one-star reviews, where customers were as dissatisfied
-as possible. The remaining 2,042 reviews are spread across the two- to
+7,688 reviews are one-star reviews, where customers were as dissatisfied
+as possible. The remaining 2,000 reviews are spread across the two- to
 five-star reviews. Given that one-, two-, and five-star reviews appear
 most frequently (with a clear dominance of the one-star reviews), we
 conclude that strong emotional reactions to Amazon’s services, either
@@ -353,7 +358,7 @@ def clean_text(dataset, spell, stop_words):
     dataset['Rating_Class'] = 'Bad'
     dataset.loc[dataset['Review_Score'] >= 4, 'Rating_Class'] = 'Good'
 
-    dataset = dataset.drop(['User_ID', 'Date', 'User_Name', 'User_Country', 'Review_Score', 'Review_Title'], axis = 1)
+    dataset = dataset.drop(['User_ID', 'Review_Date', 'Experience_Date', 'User_Name', 'User_Country', 'Review_Score', 'Review_Title'], axis = 1)
 
     return dataset
 ```
@@ -391,7 +396,7 @@ in-depth approaches not considered here may also include 2-grams or
 The data is split into a training set and a test set before any further
 preprocessing of the cleaned texts. To ensure that the test set contains
 at least 1,000 observations, we consider a **test share** of **11%**,
-resulting in a **test sample size** of **1,048**. For simplicity, we
+resulting in a **test sample size** of **1,066**. For simplicity, we
 only consider such a fixed split; more elaborate but also time- and
 memory-consuming approaches use nested cross-validation ideas with
 multiple training-test splits. For the purpose of this project, the size
@@ -513,12 +518,12 @@ print(classification_report(y_test, pred_baseline,
 
                   precision    recall  f1-score   support
 
-             Bad       0.89      1.00      0.94       933
-            Good       0.00      0.00      0.00       115
+             Bad       0.89      1.00      0.94       954
+            Good       0.00      0.00      0.00       112
 
-        accuracy                           0.89      1048
-       macro avg       0.45      0.50      0.47      1048
-    weighted avg       0.79      0.89      0.84      1048
+        accuracy                           0.89      1066
+       macro avg       0.45      0.50      0.47      1066
+    weighted avg       0.80      0.89      0.85      1066
 
 ## 5.4 Logistic regression
 
@@ -539,13 +544,13 @@ regression is implemented. In the outer cross-validation, we tune the
 penalty term (`C`), the class weights (`class_weight`), and the form of
 regularization (`l1_ratio`), while the inner cross-validation handles
 the probability threshold selection. Ultimately, `C = 0.1`,
-`class_weight = {'Bad': 1.0, 'Good': 4.0}`, and `l1_ratio = 0.0` are
-selected, corresponding to a strongly regularized ridge logistic
-regression, where incorrect classification of the `Good` class costs
-four times more than an incorrect classification of the `Bad` class.
-With these hyperparameters, the model is then refitted to the entire
-training sample, while re-selecting the probability threshold with
-cross-validation to be approx. 0.3878.
+`class_weight = 'balanced'`, and `l1_ratio = 0.0` are selected,
+corresponding to a strongly regularized ridge logistic regression, where
+incorrect classification of the `Good` class costs 8.5 times more than
+an incorrect classification of the `Bad` class. With these
+hyperparameters, the model is then refitted to the entire training
+sample, while re-selecting the probability threshold with
+cross-validation to be approx. 0.4490.
 
 <details>
 
@@ -627,20 +632,20 @@ print(report_model1)
 
 The test sample evaluation is summarized in the following Python report.
 In comparison to the naive approach, the overall accuracy could be
-increased from 0.89 to 0.93. The average (unweighted) recall increased
-from 0.5 to 0.91. Most indicators increase, with the exception of the
+increased from 0.89 to 0.92. The average (unweighted) recall increased
+from 0.5 to 0.89. Most indicators increase, with the exception of the
 `Bad` class recall, which decreased from 1.00 to 0.93: the improvement
 in the other measures comes at the cost of not being able to identify
 all the `Bad` labels.
 
                   precision    recall  f1-score   support
 
-             Bad       0.98      0.93      0.96       933
-            Good       0.62      0.88      0.73       115
+             Bad       0.98      0.93      0.95       954
+            Good       0.57      0.85      0.68       112
 
-        accuracy                           0.93      1048
-       macro avg       0.80      0.91      0.84      1048
-    weighted avg       0.94      0.93      0.93      1048
+        accuracy                           0.92      1066
+       macro avg       0.78      0.89      0.82      1066
+    weighted avg       0.94      0.92      0.92      1066
 
 ### 5.4.3 Standardization of word frequencies
 
@@ -708,9 +713,9 @@ print(report_model2)
 
                   precision    recall  f1-score   support
 
-             Bad       0.99      0.92      0.95       933
-            Good       0.58      0.91      0.71       115
+             Bad       0.98      0.94      0.96       954
+            Good       0.64      0.84      0.72       112
 
-        accuracy                           0.92      1048
-       macro avg       0.79      0.92      0.83      1048
-    weighted avg       0.94      0.92      0.93      1048
+        accuracy                           0.93      1066
+       macro avg       0.81      0.89      0.84      1066
+    weighted avg       0.94      0.93      0.94      1066
