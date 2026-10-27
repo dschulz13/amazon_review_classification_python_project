@@ -16,9 +16,9 @@ crossref:
 
 # 2 Data
 
-The anonymized dataset `amazon_com_reviews_trustpilot_20261017_anon.feather` in the GitHub repository [dschulz13/dataset-amazon_trustpilot_reviews](https://github.com/dschulz13/dataset-amazon_trustpilot_reviews.git) is considered. It contains all **32,666 English Trustpilot reviews** for **Amazon.com** published between August 27, 2007, and October 17, 2026. The data was originally scraped directly from the [Trustpilot webpage of Amazon.com](https://de.trustpilot.com/review/www.amazon.com?languages=en) using **Python's Selenium** extension.
+The anonymized dataset `amazon_com_reviews_trustpilot_20261026_anon.feather` in the GitHub repository [dschulz13/dataset-amazon_trustpilot_reviews](https://github.com/dschulz13/dataset-amazon_trustpilot_reviews.git) is considered. It contains all **32,632 English Trustpilot reviews** for **Amazon.com** published between August 27, 2007, and October 26, 2026. The data was originally scraped directly from the [Trustpilot webpage of Amazon.com](https://de.trustpilot.com/review/www.amazon.com?languages=en) using **Python's Selenium** extension.
 
-For the sake of this project, only the available **data since January 01, 2025**, is used. This approximately gives a **cross-sectional overview of recent customer feedback**. Filtered this way, **9,522 reviews** remain for the analysis.
+For the sake of this project, only the available **reviews published since January 01, 2025** are used. This approximately gives a **cross-sectional overview of recent customer feedback**. Filtered this way, **9,688 reviews** remain for the analysis.
 
 <details><summary>Show Python code</summary>
 
@@ -33,15 +33,15 @@ import pandas as pd
 import numpy as np
 
 # URL to the data on GitHub
-url = 'https://github.com/dschulz13/dataset-amazon_trustpilot_reviews/raw/refs/heads/main/amazon_com_reviews_trustpilot_20261017_anon.feather'
+url = 'https://github.com/dschulz13/dataset-amazon_trustpilot_reviews/raw/refs/heads/main/amazon_com_reviews_trustpilot_20261026_anon.feather'
 
 # Read in the data
 data_filt = pd.read_feather(url)
 # Make Date column a datetime column
-data_filt['Date'] = pd.to_datetime(data_filt['Date'])
+data_filt['Review_Date'] = pd.to_datetime(data_filt['Review_Date'], utc = True, format = '%Y-%m-%d %H:%M:%S')
 # Keep observations since 2025-01-01 and reset index
 data_filt = (
-    data_filt[data_filt['Date'] >= '2025-01-01 00:00:00']
+    data_filt[data_filt['Review_Date'] >= '2025-01-01 00:00:00']
         .reset_index(drop = True)
 )
 
@@ -57,7 +57,7 @@ The following code chunk then provides general information about the filtered da
 
 # Show general information
 print(data_filt.info())
-print(data_filt[['Date', 'Review_Score']].describe())
+print(data_filt[['Review_Date', 'Review_Score']].describe())
 print(data_filt['Review_Sentences'][6])
 ```
 
@@ -104,16 +104,16 @@ for i in range(0, 5):
 # Show general information
 print(data_filt.info())
 print('\n')
-print(data_filt[['Date', 'Review_Score']].describe())
+print(data_filt[['Review_Date', 'Review_Score']].describe())
 print('\n')
 print(data_filt['Review_Sentences'][6])
 ```
 
-From the data output, we can see that the dataset has the seven variables `User_ID`, `Date`, `User_Name`, `User_Country`, `Review_Score`, `Review_Title`, and `Review_Sentences`. Each row in the dataset is a unique review entry. `User_ID` is an `int` variable that uniquely identifies each author (and can be used to see, which person wrote multiple reviews). `Date` is a `datetime` variable, while `Review_Score` is also an `int` column. `User_Name`, `User_Country`, and `Review_Title` are `str` columns containing the author's user name, the author's registered country, and the the document's review title, respectively. `Review_Sentences` is an `object` column, where in each row it contains a list, whose entries are the different review sentences as strings.
+From the data output, we can see that the dataset has the eight variables `User_ID`, `Review_Date`, `Experience_Date`, `User_Name`, `User_Country`, `Review_Score`, `Review_Title`, and `Review_Sentences`. Each row in the dataset is a unique review entry. `User_ID` is an `int` variable that uniquely identifies each author (and can be used to see, which person wrote multiple reviews). `Review_Date` is a `datetime` variable, while `Experience_Date` is a `str` variable. `Review_Score` is also an `int` column. `User_Name`, `User_Country`, and `Review_Title` are `str` columns containing the author's user name, the author's registered country, and the the document's review title, respectively. `Review_Sentences` is an `object` column, where in each row it contains a list, whose entries are the different review sentences as strings.
 
-Only `Review_Sentences` contains missing values sometimes, as review author's must specify a review title, but they are not obligated to write a review text. Therefore, in 149 instances no review text was written.
+Only `Review_Sentences` contains missing values sometimes, as review author's must specify a review title, but they are not obligated to write a review text. Therefore, in 137 instances no review text was written.
 
-The star ratings are apparently strongly skewed / imbalanced. The mean rating is approx. 1.55, the median and even the 75th percentile of the observed rating distribution are simply 1.
+The star ratings are apparently strongly skewed / imbalanced. The mean rating is approx. 1.53, the median and even the 75th percentile of the observed rating distribution are simply 1.
 
 ```{python}
 #| echo: False
@@ -266,7 +266,7 @@ def clean_text(dataset, spell, stop_words):
     dataset['Rating_Class'] = 'Bad'
     dataset.loc[dataset['Review_Score'] >= 4, 'Rating_Class'] = 'Good'
 
-    dataset = dataset.drop(['User_ID', 'Date', 'User_Name', 'User_Country', 'Review_Score', 'Review_Title'], axis = 1)
+    dataset = dataset.drop(['User_ID', 'Review_Date', 'Experience_Date', 'User_Name', 'User_Country', 'Review_Score', 'Review_Title'], axis = 1)
 
     return dataset
 ```
