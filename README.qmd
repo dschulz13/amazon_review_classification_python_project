@@ -140,7 +140,7 @@ ax.xaxis.set_major_formatter(ticker.FuncFormatter(star_formatter));
 plt.xticks(rotation = 0, ha = 'center');
 ax.grid(axis = 'y');
 ax.set_axisbelow(True);
-ax.set_ylim(0, 8300);
+ax.set_ylim(0, 8500);
 for i in range(0, 5):
     ax.text(x = i, y = star_counts.to_numpy()[i].item() + 300,
         s = f'{star_counts.to_numpy()[i].item():,}',
