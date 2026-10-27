@@ -428,6 +428,33 @@ As a first, more elaborate approach, a fine-tuned regularized logistic regressio
 <details><summary>Show Python code</summary>
 
 ```{python}
+#| echo: False
+#| eval: True
+#| include: False
+
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV, TunedThresholdClassifierCV, StratifiedKFold
+from sklearn.metrics import make_scorer, balanced_accuracy_score
+from imblearn.pipeline import Pipeline
+
+### General settings for CountVectorizer
+tokenizer = str.split    # create words by splitting cleaned texts by whitespace
+preprocessor = None      # no additional preprocessing
+token_pattern = None     # no further token identification
+lowercase = False        # no further lower case transformation need
+min_df = 10              # consider only words appearing in at least ten documents
+max_df = 1000000000      # (practically) no limit for number of documents with a specific word
+
+### Base settings for logistic regression
+solver = 'saga'
+random_state = 1
+max_iter = 5000
+
+bas_adj = make_scorer(balanced_accuracy_score) 
+```
+
+```{python}
 #| warning: False
 #| eval: False
 
@@ -520,6 +547,14 @@ print(report_model1)
 <details><summary>Show Python code</summary>
 
 ```{python}
+#| echo: False
+#| eval: True
+#| include: False
+
+from sklearn.feature_extraction.text import TfidfTransformer
+```
+
+```{python}
 #| echo: True
 #| eval: False
 #| include: True
@@ -588,4 +623,161 @@ model2_tuned = pickle.load(open('logit_model_stand.bin', 'rb'))
 pred_model2 = model2_tuned.predict(X_test)
 report_model2 = classification_report(y_test, pred_model2)
 print(report_model2)
+```
+
+## 5.5 Naive Bayes
+
+### 5.5.1 No standardization of word frequencies
+
+```{python}
+#| echo: False
+#| eval: True
+#| include: False
+
+from sklearn.naive_bayes import GaussianNB
+from sklearn.preprocessing import FunctionTransformer
+from imblearn.over_sampling import SMOTE
+```
+
+<details><summary>Show Python code</summary>
+
+```{python}
+#| echo: True
+#| eval: False
+#| include: True
+
+from sklearn.naive_bayes import GaussianNB
+from sklearn.preprocessing import FunctionTransformer
+from imblearn.over_sampling import RandomOverSampler
+
+def fun_toarray(x):
+    return x.toarray()
+
+model3 = Pipeline([
+    ('dtm', CountVectorizer(
+        tokenizer = tokenizer,    
+        preprocessor = preprocessor,      
+        token_pattern = token_pattern,     
+        lowercase = lowercase,        
+        min_df = min_df,               
+        max_df = max_df        
+    )),
+    ('oversampler', RandomOverSampler(random_state = 1)),
+    ('to_dense', FunctionTransformer(fun_toarray, accept_sparse = True)),
+    ('model', GaussianNB())
+])
+
+model3_tuned_inner = TunedThresholdClassifierCV(
+    estimator = model3,
+    refit = True,
+    scoring = bas_adj,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    thresholds = 50,
+    n_jobs = 1
+)
+
+model3_params = {
+    'estimator__oversampler__sampling_strategy': np.array([0.12, 0.2, 0.4, 0.6, 0.8, 1.0]).tolist()
+}
+
+model3_tuned = GridSearchCV(
+    model3_tuned_inner,
+    model3_params,
+    scoring = bas_adj,
+    cv = StratifiedKFold(5, random_state = 1, shuffle = True),
+    n_jobs = -1
+)
+
+model3_tuned.fit(X_train, y_train)
+pred_model3 = model3_tuned.predict(X_test)
+report_model3 = classification_report(y_test, pred_model3)
+print(report_model3)
+```
+
+</details>
+
+```{python}
+#| echo: False
+#| eval: True
+#| include: True
+
+from sklearn.naive_bayes import GaussianNB
+from sklearn.preprocessing import FunctionTransformer
+from imblearn.over_sampling import RandomOverSampler
+
+def fun_toarray(x):
+    return x.toarray()
+
+model3_tuned = pickle.load(open('nbayes_model_not_stand.bin', 'rb'))
+pred_model3 = model3_tuned.predict(X_test)
+report_model3 = classification_report(y_test, pred_model3)
+print(report_model3)
+```
+
+### 5.5.2 Standardization of word frequencies
+
+<details><summary>Show Python code</summary>
+
+```{python}
+#| echo: True
+#| eval: False
+#| include: True
+
+model4 = Pipeline([
+    ('dtm', CountVectorizer(
+        tokenizer = tokenizer,    
+        preprocessor = preprocessor,      
+        token_pattern = token_pattern,     
+        lowercase = lowercase,        
+        min_df = min_df,               
+        max_df = max_df        
+    )),
+    ('standard', TfidfTransformer(
+        use_idf = True,
+        norm = "l2", 
+        sublinear_tf = True
+    )),
+    ('oversampler', RandomOverSampler(random_state = 1)),    
+    ('to_dense', FunctionTransformer(fun_toarray, accept_sparse = True)),
+    ('model', GaussianNB())
+])
+
+model4_tuned_inner = TunedThresholdClassifierCV(
+    estimator = model4,
+    refit = True,
+    scoring = bas_adj,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    thresholds = 50,
+    n_jobs = 1
+)
+
+model4_params = {
+    'estimator__oversampler__sampling_strategy': np.array([0.12, 0.2, 0.4, 0.6, 0.8, 1.0]).tolist()
+}
+
+model4_tuned = GridSearchCV(
+    model4_tuned_inner,
+    model4_params,
+    scoring = bas_adj,
+    cv = StratifiedKFold(5, random_state = 1, shuffle = True),
+    n_jobs = -1
+)
+
+model4_tuned.fit(X_train, y_train)
+pred_model4 = model4_tuned.predict(X_test)
+report_model4 = classification_report(y_test, pred_model4)
+print(report_model4)
+```
+
+</details>
+
+```{python}
+#| echo: False
+#| eval: True
+#| include: True
+
+model4_tuned = pickle.load(open('nbayes_model_stand.bin', 'rb'))
+pred_model4 = model4_tuned.predict(X_test)
+report_model4 = classification_report(y_test, pred_model4)
+print(report_model4)
 ```

@@ -11,6 +11,7 @@ October 27, 2026
   - [5.2 Word cloud](#52-word-cloud)
   - [5.3 Baseline prediction](#53-baseline-prediction)
   - [5.4 Logistic regression](#54-logistic-regression)
+  - [5.5 Naive Bayes](#55-naive-bayes)
 
 # 1 Executive summary
 
@@ -719,3 +720,141 @@ print(report_model2)
         accuracy                           0.93      1066
        macro avg       0.81      0.89      0.84      1066
     weighted avg       0.94      0.93      0.94      1066
+
+## 5.5 Naive Bayes
+
+### 5.5.1 No standardization of word frequencies
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
+``` python
+from sklearn.naive_bayes import GaussianNB
+from sklearn.preprocessing import FunctionTransformer
+from imblearn.over_sampling import RandomOverSampler
+
+def fun_toarray(x):
+    return x.toarray()
+
+model3 = Pipeline([
+    ('dtm', CountVectorizer(
+        tokenizer = tokenizer,    
+        preprocessor = preprocessor,      
+        token_pattern = token_pattern,     
+        lowercase = lowercase,        
+        min_df = min_df,               
+        max_df = max_df        
+    )),
+    ('oversampler', RandomOverSampler(random_state = 1)),
+    ('to_dense', FunctionTransformer(fun_toarray, accept_sparse = True)),
+    ('model', GaussianNB())
+])
+
+model3_tuned_inner = TunedThresholdClassifierCV(
+    estimator = model3,
+    refit = True,
+    scoring = bas_adj,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    thresholds = 50,
+    n_jobs = 1
+)
+
+model3_params = {
+    'estimator__oversampler__sampling_strategy': np.array([0.12, 0.2, 0.4, 0.6, 0.8, 1.0]).tolist()
+}
+
+model3_tuned = GridSearchCV(
+    model3_tuned_inner,
+    model3_params,
+    scoring = bas_adj,
+    cv = StratifiedKFold(5, random_state = 1, shuffle = True),
+    n_jobs = -1
+)
+
+model3_tuned.fit(X_train, y_train)
+pred_model3 = model3_tuned.predict(X_test)
+report_model3 = classification_report(y_test, pred_model3)
+print(report_model3)
+```
+
+</details>
+
+                  precision    recall  f1-score   support
+
+             Bad       0.96      0.75      0.84       954
+            Good       0.25      0.74      0.38       112
+
+        accuracy                           0.74      1066
+       macro avg       0.61      0.74      0.61      1066
+    weighted avg       0.89      0.74      0.79      1066
+
+### 5.5.2 Standardization of word frequencies
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
+``` python
+model4 = Pipeline([
+    ('dtm', CountVectorizer(
+        tokenizer = tokenizer,    
+        preprocessor = preprocessor,      
+        token_pattern = token_pattern,     
+        lowercase = lowercase,        
+        min_df = min_df,               
+        max_df = max_df        
+    )),
+    ('standard', TfidfTransformer(
+        use_idf = True,
+        norm = "l2", 
+        sublinear_tf = True
+    )),
+    ('oversampler', RandomOverSampler(random_state = 1)),    
+    ('to_dense', FunctionTransformer(fun_toarray, accept_sparse = True)),
+    ('model', GaussianNB())
+])
+
+model4_tuned_inner = TunedThresholdClassifierCV(
+    estimator = model4,
+    refit = True,
+    scoring = bas_adj,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    thresholds = 50,
+    n_jobs = 1
+)
+
+model4_params = {
+    'estimator__oversampler__sampling_strategy': np.array([0.12, 0.2, 0.4, 0.6, 0.8, 1.0]).tolist()
+}
+
+model4_tuned = GridSearchCV(
+    model4_tuned_inner,
+    model4_params,
+    scoring = bas_adj,
+    cv = StratifiedKFold(5, random_state = 1, shuffle = True),
+    n_jobs = -1
+)
+
+model4_tuned.fit(X_train, y_train)
+pred_model4 = model4_tuned.predict(X_test)
+report_model4 = classification_report(y_test, pred_model4)
+print(report_model4)
+```
+
+</details>
+
+                  precision    recall  f1-score   support
+
+             Bad       0.96      0.76      0.85       954
+            Good       0.27      0.73      0.39       112
+
+        accuracy                           0.76      1066
+       macro avg       0.61      0.75      0.62      1066
+    weighted avg       0.89      0.76      0.80      1066
