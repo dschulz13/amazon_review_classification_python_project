@@ -1,6 +1,6 @@
 # Identifying Negative Customer Experiences Through Text Classification Using Python: A Case Study of Amazon.com Reviews on Trustpilot
 Dominik Schulz
-October 27, 2026
+October 28, 2026
 
 - [1 Executive summary](#1-executive-summary)
 - [2 Data](#2-data)
@@ -12,8 +12,37 @@ October 27, 2026
   - [5.3 Baseline prediction](#53-baseline-prediction)
   - [5.4 Logistic regression](#54-logistic-regression)
   - [5.5 Naive Bayes](#55-naive-bayes)
+  - [5.6 LDA](#56-lda)
+  - [5.7 Random Forest](#57-random-forest)
+  - [5.8 Boosted tree methods](#58-boosted-tree-methods)
 
 # 1 Executive summary
+
+**Note:** this project is currently still a work in progress and will be
+updated regularly.
+
+1.  The scores are **strongly imbalanced**, where the vast **majority**
+    of the reviews gives a rating of **one star**.
+
+2.  The **naive predictor** of simply labelling all reviews as `Bad`
+    produces a **recall of 1.0** on the `Bad` class and **accuracy of
+    0.89** on the test set. This comes at the cost of poor performance
+    on the `Good` class. This predictor implies that, in a real-world
+    scenario, all incoming messages would have to be inspected manually.
+
+3.  **First impressions** of strongly tuned **logistic regression**
+    predictors and **random forest** predictors show that test set
+    accuracy can be improved to 0.93 with ease. The preferred solution
+    so far is the tuned random forest predictor under TF-IDF-transformed
+    word frequencies, which achieves test accuracy of 0.93 and a **`Bad`
+    class recall** of **0.95**. The achieved **`Good` class recall** is
+    **0.77**. Hence, we have **23% false-negatives** on the **`Good`
+    class** and **5% false-negatives** on the **`Bad` class**. Given the
+    global distribution of 89% `Bad` and 11% `Good` reviews, we can
+    reduce the amount of overall messages to check manually by approx.
+    12.9% at the cost of ignoring 5% of the `Bad` messages. Further
+    analysis on the costs related to this needs to be carried out
+    elsewhere.
 
 # 2 Data
 
@@ -566,6 +595,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV, TunedThresholdClassifierCV, StratifiedKFold
 from sklearn.metrics import make_scorer, balanced_accuracy_score
 from imblearn.pipeline import Pipeline
+import pickle
 
 ### General settings for CountVectorizer
 tokenizer = str.split    # create words by splitting cleaned texts by whitespace
@@ -624,6 +654,10 @@ model1_tuned = GridSearchCV(
 )
 
 model1_tuned.fit(X_train, y_train)
+
+pickle.dump(model1_tuned, open('logit_model_not_stand.bin', 'wb'))
+model1_tuned = pickle.load(open('logit_model_not_stand.bin', 'rb'))
+
 pred_model1 = model1_tuned.predict(X_test)
 report_model1 = classification_report(y_test, pred_model1)
 print(report_model1)
@@ -705,6 +739,10 @@ model2_tuned = GridSearchCV(
 )
 
 model2_tuned.fit(X_train, y_train)
+
+pickle.dump(model2_tuned, open('logit_model_stand.bin', 'wb'))
+model2_tuned = pickle.load(open('logit_model_stand.bin', 'rb'))
+
 pred_model2 = model2_tuned.predict(X_test)
 report_model2 = classification_report(y_test, pred_model2)
 print(report_model2)
@@ -764,7 +802,7 @@ model3_tuned_inner = TunedThresholdClassifierCV(
 )
 
 model3_params = {
-    'estimator__oversampler__sampling_strategy': np.array([0.12, 0.2, 0.4, 0.6, 0.8, 1.0]).tolist()
+    'estimator__oversampler__sampling_strategy': [0.12, 0.2, 0.4, 0.6, 0.8, 1.0]
 }
 
 model3_tuned = GridSearchCV(
@@ -776,6 +814,10 @@ model3_tuned = GridSearchCV(
 )
 
 model3_tuned.fit(X_train, y_train)
+
+pickle.dump(model3_tuned, open('nbayes_model_not_stand.bin', 'wb'))
+model3_tuned = pickle.load(open('nbayes_model_not_stand.bin', 'rb'))
+
 pred_model3 = model3_tuned.predict(X_test)
 report_model3 = classification_report(y_test, pred_model3)
 print(report_model3)
@@ -831,7 +873,7 @@ model4_tuned_inner = TunedThresholdClassifierCV(
 )
 
 model4_params = {
-    'estimator__oversampler__sampling_strategy': np.array([0.12, 0.2, 0.4, 0.6, 0.8, 1.0]).tolist()
+    'estimator__oversampler__sampling_strategy': [0.12, 0.2, 0.4, 0.6, 0.8, 1.0]
 }
 
 model4_tuned = GridSearchCV(
@@ -843,6 +885,10 @@ model4_tuned = GridSearchCV(
 )
 
 model4_tuned.fit(X_train, y_train)
+
+pickle.dump(model4_tuned, open('nbayes_model_stand.bin', 'wb'))
+model4_tuned = pickle.load(open('nbayes_model_stand.bin', 'rb'))
+
 pred_model4 = model4_tuned.predict(X_test)
 report_model4 = classification_report(y_test, pred_model4)
 print(report_model4)
@@ -858,3 +904,135 @@ print(report_model4)
         accuracy                           0.76      1066
        macro avg       0.61      0.75      0.62      1066
     weighted avg       0.89      0.76      0.80      1066
+
+## 5.6 LDA
+
+## 5.7 Random Forest
+
+### 5.7.1 No standardization of word frequencies
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
+``` python
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import RandomizedSearchCV
+
+rf_model = Pipeline([
+    ('dtm', CountVectorizer(
+        tokenizer = tokenizer,    
+        preprocessor = preprocessor,      
+        token_pattern = token_pattern,     
+        lowercase = lowercase,        
+        min_df = min_df,               
+        max_df = max_df        
+    )),
+    ('model', RandomForestClassifier(criterion = 'entropy', random_state = 1))
+])
+
+rf_params = {
+    'model__n_estimators': [100, 200],
+    'model__max_depth': [10, 20, 30, 40],
+    'model__max_features': np.arange(0.2, 0.85, 0.05).tolist(),
+    'model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}]
+}
+
+rf_model_tuned = RandomizedSearchCV(
+    rf_model,
+    rf_params,
+    cv = StratifiedKFold(5, shuffle = True, random_state = 1),
+    refit = True,
+    scoring = bas_adj,
+    n_jobs = -1,
+    random_state = 1,
+    n_iter = 80
+)
+rf_model_tuned.fit(X_train, y_train)
+
+pickle.dump(rf_model_tuned, open('rf_model_not_stand2.bin', 'wb'))
+
+pred_model_rf = rf_model_tuned.predict(X_test)
+report_model_rf = classification_report(y_test, pred_model_rf)
+print(report_model_rf)
+```
+
+</details>
+
+                  precision    recall  f1-score   support
+
+             Bad       0.97      0.93      0.95       954
+            Good       0.55      0.75      0.63       112
+
+        accuracy                           0.91      1066
+       macro avg       0.76      0.84      0.79      1066
+    weighted avg       0.93      0.91      0.92      1066
+
+### 5.7.2 Standardization of word frequencies
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
+``` python
+rf_model = Pipeline([
+    ('dtm', CountVectorizer(
+        tokenizer = tokenizer,    
+        preprocessor = preprocessor,      
+        token_pattern = token_pattern,     
+        lowercase = lowercase,        
+        min_df = min_df,               
+        max_df = max_df        
+    )),
+    ('standard', TfidfTransformer(
+        use_idf = True,
+        norm = "l2", 
+        sublinear_tf = True
+    )),    
+    ('model', RandomForestClassifier(criterion = 'entropy', random_state = 1))
+])
+
+rf_params = {
+    'model__n_estimators': [100, 200],
+    'model__max_depth': [10, 20, 30, 40],
+    'model__max_features': np.arange(0.2, 0.85, 0.05).tolist(),
+    'model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}]
+}
+
+rf_model_tuned = RandomizedSearchCV(
+    rf_model,
+    rf_params,
+    cv = StratifiedKFold(5, shuffle = True, random_state = 1),
+    refit = True,
+    scoring = bas_adj,
+    n_jobs = -1,
+    random_state = 1,
+    n_iter = 100
+)
+rf_model_tuned.fit(X_train, y_train)
+
+pickle.dump(rf_model_tuned, open('rf_model_stand3.bin', 'wb'))
+
+pred_model_rf = rf_model_tuned.predict(X_test)
+report_model_rf = classification_report(y_test, pred_model_rf)
+print(report_model_rf)
+```
+
+</details>
+
+                  precision    recall  f1-score   support
+
+             Bad       0.97      0.95      0.96       954
+            Good       0.62      0.77      0.69       112
+
+        accuracy                           0.93      1066
+       macro avg       0.80      0.86      0.82      1066
+    weighted avg       0.94      0.93      0.93      1066
+
+## 5.8 Boosted tree methods
