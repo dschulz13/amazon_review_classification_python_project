@@ -1053,3 +1053,74 @@ print(f'Custom cost: {neg_cost_fun(y_test, pred_model_rf2)}')
 ```
 
 ## 6.8 Boosted tree methods
+
+```{python}
+from sklearn.ensemble import GradientBoostingClassifier
+
+boost_model = Pipeline([
+    ('dtm', CountVectorizer(
+        tokenizer = tokenizer,    
+        preprocessor = preprocessor,      
+        token_pattern = token_pattern,     
+        lowercase = lowercase,        
+        min_df = min_df,               
+        max_df = max_df        
+    )),
+    ('sampler', RandomOverSampler(random_state = 1)),
+    ('model', GradientBoostingClassifier(loss = 'log_loss', random_state = 1))
+])
+
+boost_params = {
+    'sampler__sampling_strategy': [0.2, 0.4, 0.6, 0.8, 1.0],
+    'model__n_estimators': [100, 200],
+    'model__max_depth': [20, 30, 40],
+    'model__max_features': np.arange(0.2, 0.85, 0.05).tolist(),
+    'model__learning_rate': [0.01, 0.1, 1]
+}
+
+boost_model_step1 = RandomizedSearchCV(
+    boost_model,
+    boost_params,
+    cv = StratifiedKFold(3, shuffle = True, random_state = 1),
+    refit = True,
+    scoring = 'roc_auc',
+    n_jobs = -1,
+    random_state = 1,
+    n_iter = 30
+)
+boost_model_step1.fit(X_train, y_train)
+
+boost_model_tuned = TunedThresholdClassifierCV(
+    boost_model_step1.best_estimator_,
+    scoring = scorer,
+    thresholds = 100,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    refit = True,
+    n_jobs = -1
+)
+boost_model_tuned.fit(X_train, y_train)
+
+pickle.dump(boost_model_tuned, open('boost_model_not_stand.bin', 'wb'))
+
+pred_model_boost = boost_model_tuned.predict(X_test)
+report_model_boost = classification_report(y_test, pred_model_boost)
+print(report_model_boost)
+print(f'Custom cost: {neg_cost_fun(y_test, pred_model_boost)}')
+
+```
+
+
+```{python}
+#| echo: False
+#| eval: True
+#| include: True
+
+del (rf_model_tuned, rf_model2_tuned)
+gc.collect()
+
+boost_model_tuned = pickle.load(open('boost_model_not_stand.bin', 'rb'))
+pred_model_boost = boost_model_tuned.predict(X_test)
+report_model_boost = classification_report(y_test, pred_model_boost)
+print(report_model_boost)
+print(f'Custom cost: {neg_cost_fun(y_test, pred_model_boost)}')
+```
