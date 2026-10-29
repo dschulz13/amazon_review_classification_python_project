@@ -1,20 +1,25 @@
 # Identifying Negative Customer Experiences Through Text Classification Using Python: A Case Study of Amazon.com Reviews on Trustpilot
 Dominik Schulz
-October 28, 2026
+October 29, 2026
 
 - [1 Executive summary](#1-executive-summary)
 - [2 Data](#2-data)
 - [3 Objective](#3-objective)
 - [4 Data cleaning](#4-data-cleaning)
-- [5 Analysis](#5-analysis)
+- [5 Design](#5-design)
   - [5.1 Train-test split](#51-train-test-split)
   - [5.2 Word cloud](#52-word-cloud)
-  - [5.3 Baseline prediction](#53-baseline-prediction)
-  - [5.4 Logistic regression](#54-logistic-regression)
-  - [5.5 Naive Bayes](#55-naive-bayes)
-  - [5.6 LDA](#56-lda)
-  - [5.7 Random Forest](#57-random-forest)
-  - [5.8 Boosted tree methods](#58-boosted-tree-methods)
+  - [5.3 Transformation of word
+    frequencies](#53-transformation-of-word-frequencies)
+  - [5.4 Score function](#54-score-function)
+  - [5.5 Estimation framework](#55-estimation-framework)
+- [6 Analysis](#6-analysis)
+  - [6.1 Baseline prediction](#61-baseline-prediction)
+  - [6.2 Logistic regression](#62-logistic-regression)
+  - [6.3 Naive Bayes](#63-naive-bayes)
+  - [6.4 LDA](#64-lda)
+  - [6.5 Random Forest](#65-random-forest)
+  - [6.8 Boosted tree methods](#68-boosted-tree-methods)
 
 # 1 Executive summary
 
@@ -32,16 +37,17 @@ updated regularly.
 
 3.  **First impressions** of strongly tuned **logistic regression**
     predictors and **random forest** predictors show that test set
-    accuracy can be improved to 0.93 with ease. The preferred solution
-    so far is the tuned random forest predictor under TF-IDF-transformed
-    word frequencies, which achieves test accuracy of 0.93 and a **`Bad`
-    class recall** of **0.95**. The achieved **`Good` class recall** is
-    **0.77**. Hence, we have **23% false-negatives** on the **`Good`
-    class** and **5% false-negatives** on the **`Bad` class**. Given the
-    global distribution of 89% `Bad` and 11% `Good` reviews, we can
-    reduce the amount of overall messages to check manually by approx.
-    12.9% at the cost of ignoring 5% of the `Bad` messages. Further
-    analysis on the costs related to this needs to be carried out
+    accuracy can be improved to 0.94 to 0.95 with ease. The preferred
+    solution so far is the tuned logistic regression predictor under
+    TF-IDF-transformed word frequencies, which achieves test accuracy of
+    0.95 and a **`Bad` class recall** of **0.99**. The achieved **`Good`
+    class recall** is **0.63**. Hence, we have **37% false-negatives**
+    on the **`Good` class** and **1% false-negatives** on the **`Bad`
+    class**. Given the global distribution of 89% `Bad` and 11% `Good`
+    reviews, we can reduce the amount of overall messages to check
+    manually by approx. 7.8% at the cost of ignoring 1% of the `Bad`
+    messages, which is a very conservative trade-off. Further analysis
+    on the actual costs related to this needs to be carried out
     elsewhere.
 
 # 2 Data
@@ -70,7 +76,8 @@ Show Python code
 
 With the following code chunk, the dataset is read into Python and
 filtered, so that only reviews published on January 01, 2025, or later
-are kept.
+are kept. Initially, we also optimize memory usage by adjusting selected
+column data types.
 
 ``` python
 import matplotlib.pyplot as plt
@@ -83,14 +90,58 @@ url = 'https://github.com/dschulz13/dataset-amazon_trustpilot_reviews/raw/refs/h
 
 # Read in the data
 data_filt = pd.read_feather(url)
-# Make Date column a datetime column
-data_filt['Review_Date'] = pd.to_datetime(data_filt['Review_Date'], utc = True, format = '%Y-%m-%d %H:%M:%S')
+
+# Function to reduce memory usage of data frame
+def reduce_df_size(df, verbose = True):
+    numerics = ['int8', 'int16', 'int32', 'int64', 'float16', 'float32',
+'float64']
+    if verbose:
+        old_mem = df.memory_usage().sum() / 1024**2
+
+    for col in df.columns:
+        col_type = df[col].dtypes
+        if col_type in numerics:
+            c_min = df[col].min()
+            c_max = df[col].max()
+            if str(col_type)[:3] == 'int':
+                if c_min >= np.iinfo(np.int8).min and c_max <= np.iinfo(np.int8).max:
+                    df[col] = df[col].astype(np.int8)
+                elif c_min >= np.iinfo(np.int16).min and c_max <= np.iinfo(np.int16).max:
+                    df[col] = df[col].astype(np.int16)
+                elif c_min >= np.iinfo(np.int32).min and c_max <= np.iinfo(np.int32).max:
+                    df[col] = df[col].astype(np.int32)
+                else:
+                    df[col] = df[col].astype(np.int64)
+            else:
+                if c_min >= np.finfo(np.float16).min and c_max <= np.finfo(np.float16).max:
+                    df[col] = df[col].astype(np.float16)
+                elif c_min >= np.finfo(np.float32).min and c_max <= np.finfo(np.float32).max:
+                    df[col] = df[col].astype(np.float32)
+                else:
+                    df[col] = df[col].astype(np.float64)
+    df['User_Country'] = df['User_Country'].astype('category')
+    df['Review_Date'] = pd.to_datetime(df['Review_Date'], format = '%Y-%m-%d %H:%M:%S', utc = True)
+    df['Experience_Date'] = pd.to_datetime(df['Experience_Date'], format = '%Y-%m-%d', utc = True)
+
+    if verbose:
+        mem_new = (df.memory_usage().sum() / 1024**2).item()
+        change_mem = abs(mem_new - old_mem)
+        rel_mem = 100 * change_mem / old_mem
+        print(f'Old memory usage: {old_mem:.2f}MB; new memory usage: {mem_new:.2f}MB; reduction of {change_mem:.2f}MB ({rel_mem:.2f}%)')
+    return df
+
+# Make apply reformatting of columns
+data_filt['Review_Score'] = data_filt['Review_Score'].astype(int)
+data_filt = reduce_df_size(data_filt)
+
 # Keep observations since 2025-01-01 and reset index
 data_filt = (
     data_filt[data_filt['Review_Date'] >= '2025-01-01 00:00:00']
         .reset_index(drop = True)
 )
 ```
+
+    Old memory usage: 4.41MB; new memory usage: 2.97MB; reduction of 1.43MB (32.53%)
 
 The following code chunk then provides general information about the
 filtered dataset and its variables.
@@ -137,16 +188,16 @@ for i in range(0, 5):
     Data columns (total 8 columns):
      #   Column            Non-Null Count  Dtype              
     ---  ------            --------------  -----              
-     0   User_ID           9688 non-null   int32              
+     0   User_ID           9688 non-null   int16              
      1   Review_Date       9688 non-null   datetime64[us, UTC]
-     2   Experience_Date   9688 non-null   str                
+     2   Experience_Date   9688 non-null   datetime64[us, UTC]
      3   User_Name         9688 non-null   str                
-     4   User_Country      9688 non-null   str                
-     5   Review_Score      9688 non-null   int32              
+     4   User_Country      9688 non-null   category           
+     5   Review_Score      9688 non-null   int8               
      6   Review_Title      9688 non-null   str                
      7   Review_Sentences  9551 non-null   object             
-    dtypes: datetime64[us, UTC](1), int32(2), object(1), str(4)
-    memory usage: 1.1+ MB
+    dtypes: category(1), datetime64[us, UTC](2), int16(1), int8(1), object(1), str(2)
+    memory usage: 923.6+ KB
     None
 
 
@@ -173,11 +224,11 @@ variables `User_ID`, `Review_Date`, `Experience_Date`, `User_Name`,
 `User_Country`, `Review_Score`, `Review_Title`, and `Review_Sentences`.
 Each row in the dataset is a unique review entry. `User_ID` is an `int`
 variable that uniquely identifies each author (and can be used to see,
-which person wrote multiple reviews). `Review_Date` is a `datetime`
-variable, while `Experience_Date` is a `str` variable. `Review_Score` is
-also an `int` column. `User_Name`, `User_Country`, and `Review_Title`
-are `str` columns containing the author’s user name, the author’s
-registered country, and the the document’s review title, respectively.
+which person wrote multiple reviews). `Review_Date` and
+`Experience_Date` are both `datetime` variables. `Review_Score` is also
+an `int` column. `User_Name` and `Review_Title` are `str` columns
+containing the author’s user name and the the document’s review title,
+respectively. In contrast, `User_Country` is a `category` variable.
 `Review_Sentences` is an `object` column, where in each row it contains
 a list, whose entries are the different review sentences as strings.
 
@@ -337,15 +388,13 @@ def clean_text(dataset, spell, stop_words):
     review_adj = [''] * l
     for i in range(0, l):
         try:
-            text0 = dataset['Review_Title'][i]
-            len_list = len(reviews[i])
-            for j in range(0, len_list):
-                text0 = text0 + ' ' + reviews[i][j]
-            review_adj[i] = text0
+            review_adj[i] = dataset['Review_Title'][i] + ' ' + ' '.join(dataset['Review_Sentences'][i])
         except TypeError:
             review_adj[i] = dataset['Review_Title'][i]
 
     dataset['Review_Sentences'] = review_adj
+    del review_adj
+    gc.collect()
 
     # Replace emojis by text replacement
     dataset['Review_Sentences'] = [emoji.demojize(review) for review in dataset['Review_Sentences']]
@@ -377,18 +426,19 @@ def clean_text(dataset, spell, stop_words):
     l = len(reviews)
     review_adj = [''] * l
     for i in range(0, l):
-        len_list = len(reviews[i])
-        text0 = ''
-        for j in range(0, len_list):
-            text0 = text0 + ' ' + reviews[i][j]
-        review_adj[i] = text0
+        review_adj[i] = ' '.join(reviews[i])
 
     dataset['Review_Sentences'] = review_adj
+    del(reviews, review_adj)
+    gc.collect()
+
     dataset['Review_Sentences'] = dataset['Review_Sentences'].str.strip()
     dataset['Rating_Class'] = 'Bad'
     dataset.loc[dataset['Review_Score'] >= 4, 'Rating_Class'] = 'Good'
+    dataset['Rating_Class'] = dataset['Rating_Class'].astype('category')
 
     dataset = dataset.drop(['User_ID', 'Review_Date', 'Experience_Date', 'User_Name', 'User_Country', 'Review_Score', 'Review_Title'], axis = 1)
+    gc.collect()
 
     return dataset
 ```
@@ -412,14 +462,7 @@ gc.collect()
 
 </details>
 
-# 5 Analysis
-
-Throughout the analysis, we derive numerical features from 1-grams of
-the cleaned review texts, i.e. variables taken from individual words.
-This keeps the feature engineering simple enough, avoids high
-dimensionality in the feature space and reduces computation times. More
-in-depth approaches not considered here may also include 2-grams or
-3-grams, and thus variables derived from chains of multiple words.
+# 5 Design
 
 ## 5.1 Train-test split
 
@@ -445,6 +488,7 @@ Show Python code
 ``` python
 from sklearn.model_selection import train_test_split
 import pandas as pd
+import gc
 
 data_all = pd.read_feather(f'amazon_reviews_cleaned.feather')
 
@@ -455,7 +499,12 @@ X_train, X_test, y_train, y_test = train_test_split(
     random_state = 1,
     stratify = data_all.Rating_Class.tolist()
 )
+
+del data_all
+gc.collect()
 ```
+
+    40
 
 </details>
 
@@ -513,7 +562,93 @@ Frequent terms also include `refund`, `return`, `time`, `day`, `servic`,
 hinting the importance of short-term deliveries and of return / refund
 policies.
 
-## 5.3 Baseline prediction
+## 5.3 Transformation of word frequencies
+
+In many instances such as regularized logistic regression, it is common
+to transform the input features, so that they are “on the same scale”
+and so that no feature dominates the regularization penalty simply due
+to its scaling. In the given context, we are dealing with word
+frequencies, which are, in some sense, already on the same scale.
+However, values of the features are heavily influenced by other factors
+such as text length. To not destroy the sparsity of the feature matrix,
+it is hence quite common to implement a TF-IDF transformation of word
+frequencies, which keeps the zero entries and transforms the non-zero
+entries to account for rarity of words across all texts and individual
+text length. This way, rare but meaningful words can gain more weight.
+In the following, all models will be run both with standard frequencies
+and transformed frequencies to investigate, which strategy performs
+best.
+
+## 5.4 Score function
+
+In this specific business context, defining the `Bad` class as the
+positive class, false-negatives and false-positives are both costly in
+their own rights. A false-positive creates extra manual labor, while a
+false-negative means ignoring a message containing negative feedback,
+which could have negative effects on the company’s reputation. Overall,
+a false-negative should be seen as far more costly than a
+false-positive.
+
+Therefore, the selected class predictor should aim to minimize a cost
+function of the form
+$$C_{\text{T}} = -(C_{\text{FN}}\times N_{\text{FN}}+C_{\text{FP}}\times N_{\text{FP}}),$$
+where $N_{\text{FN}}$ and $N_{\text{FP}}$ are numbers of
+false-negatively and false-positively classified documents,
+respectively, and where $C_{\text{FN}}\geq 0$ and $C_{\text{FP}}\geq 0$
+are unit-costs associated with corresponding misclassifications.
+$C_{\text{T}}$ is then the total cost as a negative number that needs to
+be maximized. In the given setup, we consider $C_{\text{FN}}=4$ and
+$C_{\text{FP}}=1$, so that a false-negative is four times as costly as a
+false-positive. Simultaneously, to avoid that classifiers simply select
+the naive predictor, we implemented the contraint that a `Bad` class
+precision $\leq 0.95$ is penalized strongly. Since the naive predictor
+has `Bad` class precision 0.89, this scenario is avoided.
+
+## 5.5 Estimation framework
+
+<a href="#fig-cv-steps" class="quarto-xref">Figure 5.2</a> shows the
+training and evaluation framework for most of the classifiers.
+
+<div id="fig-cv-steps">
+
+![](CV%20framework.png)
+
+Figure 5.2: The validation and testing framework.
+
+</div>
+
+Following the training-test split of 89%-11%, we use 3-fold CV on the
+training set to identify optimal hyperparameters using the ROC-AUC
+criterion. Since ROC-AUC is a criterion independent from probability
+thresholds, it can be considered to select an overall well-rounded
+classifier. In this step, we consider randomized CV in almost all cases
+with selection of 30 instances from the entire parameter grid. Only in
+cases with small hyperparameter grids to begin with, we will implement
+the entire grid search. In a separate step, we use 3-fold CV using our
+own scoring function on the training data using the previously
+identified hyperparameters to ifentify the optimal probability threshold
+for classification. Given the hyperparameters and the threshold, the
+selected model is refitted to the entire training data and evaluated on
+the test data.
+
+This two-step procedure benefits from a relatively small computational
+burden that will identify a reliable class predictor in a small amount
+of time. A mathematically more elaborate approach would involve nested
+CV, where for each setting of hyperparameters in the outer CV loop, an
+optimal threshold would be identified on an inner CV loop. Since such an
+idea is time consuming for larger hyperparameter grids and complex
+models, we ignore this idea in this project.
+
+# 6 Analysis
+
+Throughout the analysis, we derive numerical features from 1-grams of
+the cleaned review texts, i.e. variables taken from individual words.
+This keeps the feature engineering simple enough, avoids high
+dimensionality in the feature space and reduces computation times. More
+in-depth approaches not considered here may also include 2-grams or
+3-grams, and thus variables derived from chains of multiple words.
+
+## 6.1 Baseline prediction
 
 As indicated earlier, the baseline approach of simply always predicting
 the `Bad` class results in a high overall classification accuracy of 89%
@@ -533,8 +668,17 @@ Show Python code
 </summary>
 
 ``` python
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, make_scorer, confusion_matrix, precision_score
 import numpy as np
+
+def neg_cost_fun(y_true, y_pred, c_fn = 4, c_fp = 1):
+    prec = precision_score(y_true, y_pred, pos_label = 'Bad')
+    if prec <= 0.95:
+        return -1000000.0
+    conf = confusion_matrix(y_true, y_pred)
+    return -(c_fp * conf[1, 0].item() + c_fn * conf[0, 1].item())
+
+scorer = make_scorer(neg_cost_fun)
 
 pred_baseline = np.array(['Bad'] * len(y_test))
 ```
@@ -555,32 +699,22 @@ print(classification_report(y_test, pred_baseline,
        macro avg       0.45      0.50      0.47      1066
     weighted avg       0.80      0.89      0.85      1066
 
-## 5.4 Logistic regression
+## 6.2 Logistic regression
 
-### 5.4.1 Estimation framework
-
-<div id="fig-cv-steps">
-
-![](CV%20framework.png)
-
-Figure 5.2: The validation and testing framework.
-
-</div>
-
-### 5.4.2 No standardization of word frequencies
+### 6.2.1 No standardization of word frequencies
 
 As a first, more elaborate approach, a fine-tuned regularized logistic
 regression is implemented. In the outer cross-validation, we tune the
 penalty term (`C`), the class weights (`class_weight`), and the form of
 regularization (`l1_ratio`), while the inner cross-validation handles
 the probability threshold selection. Ultimately, `C = 0.1`,
-`class_weight = 'balanced'`, and `l1_ratio = 0.0` are selected,
-corresponding to a strongly regularized ridge logistic regression, where
-incorrect classification of the `Good` class costs 8.5 times more than
-an incorrect classification of the `Bad` class. With these
-hyperparameters, the model is then refitted to the entire training
-sample, while re-selecting the probability threshold with
-cross-validation to be approx. 0.4490.
+`class_weight = {'Bad': 1.0, 'Good': 4.0}`, and `l1_ratio = 0.0` are
+selected, corresponding to a strongly regularized ridge logistic
+regression, where incorrect classification of the `Good` class costs
+four times more than an incorrect classification of the `Bad` class.
+With these hyperparameters, the model is then refitted to the entire
+training sample, while re-selecting the probability threshold with
+cross-validation to be approx. 0.7677.
 
 <details>
 
@@ -592,8 +726,7 @@ Show Python code
 ``` python
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import GridSearchCV, TunedThresholdClassifierCV, StratifiedKFold
-from sklearn.metrics import make_scorer, balanced_accuracy_score
+from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, TunedThresholdClassifierCV, StratifiedKFold
 from imblearn.pipeline import Pipeline
 import pickle
 
@@ -609,8 +742,6 @@ max_df = 1000000000      # (practically) no limit for number of documents with a
 solver = 'saga'
 random_state = 1
 max_iter = 5000
-
-bas_adj = make_scorer(balanced_accuracy_score) 
 
 model1 = Pipeline([
     # Create word frequency variables for each review from the training set
@@ -630,37 +761,39 @@ model1 = Pipeline([
     ))
 ])
 
-model1_tuned_inner = TunedThresholdClassifierCV(
-    estimator = model1,
-    scoring = bas_adj,
-    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
-    thresholds = 50,
-    refit = True,
-    n_jobs = 1
-)
-
 model1_params = {
-    'estimator__model__C': [0.01, 0.1, 1, 10, 100],
-    'estimator__model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}],
-    'estimator__model__l1_ratio': [0.0, 1.0]
+    'model__C': [0.01, 0.1, 1, 10, 100],
+    'model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}],
+    'model__l1_ratio': [0.0, 0.25, 0.5, 0.75 , 1.0]
 }
 
-model1_tuned = GridSearchCV(
-    model1_tuned_inner,
+model1_step1 = RandomizedSearchCV(
+    model1,
     model1_params,
-    scoring = bas_adj,
-    cv = StratifiedKFold(5, random_state = 1, shuffle = True),
-    n_jobs = -1
+    scoring = 'roc_auc',
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    n_jobs = -1,
+    random_state = 1,
+    n_iter = 30
 )
 
+model1_step1.fit(X_train, y_train)
+model1_tuned = TunedThresholdClassifierCV(
+    estimator = model1_step1.best_estimator_,
+    scoring = scorer,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    thresholds = 100,
+    refit = True,
+    n_jobs = -1
+)
 model1_tuned.fit(X_train, y_train)
 
 pickle.dump(model1_tuned, open('logit_model_not_stand.bin', 'wb'))
-model1_tuned = pickle.load(open('logit_model_not_stand.bin', 'rb'))
 
 pred_model1 = model1_tuned.predict(X_test)
 report_model1 = classification_report(y_test, pred_model1)
 print(report_model1)
+print(f'Custom cost: {neg_cost_fun(y_test, pred_model1)}')
 ```
 
 </details>
@@ -675,14 +808,16 @@ all the `Bad` labels.
 
                   precision    recall  f1-score   support
 
-             Bad       0.98      0.93      0.95       954
-            Good       0.57      0.85      0.68       112
+             Bad       0.95      0.98      0.97       954
+            Good       0.82      0.60      0.69       112
 
-        accuracy                           0.92      1066
-       macro avg       0.78      0.89      0.82      1066
-    weighted avg       0.94      0.92      0.92      1066
+        accuracy                           0.94      1066
+       macro avg       0.89      0.79      0.83      1066
+    weighted avg       0.94      0.94      0.94      1066
 
-### 5.4.3 Standardization of word frequencies
+    Custom cost: -105
+
+### 6.2.2 Standardization of word frequencies
 
 <details>
 
@@ -715,53 +850,58 @@ model2 = Pipeline([
     ))
 ])
 
-model2_tuned_inner = TunedThresholdClassifierCV(
-    estimator = model2,
-    scoring = bas_adj,
-    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
-    thresholds = 50,
-    refit = True,
-    n_jobs = 1
-)
-
 model2_params = {
-    'estimator__model__C': [0.01, 0.1, 1, 10, 100],
-    'estimator__model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}],
-    'estimator__model__l1_ratio': [0.0, 1.0]
+    'model__C': [0.01, 0.1, 1, 10, 100],
+    'model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}],
+    'model__l1_ratio': [0.0, 0.25, 0.5, 0.75, 1.0]
 }
 
-model2_tuned = GridSearchCV(
-    model2_tuned_inner,
+model2_step1 = RandomizedSearchCV(
+    model2,
     model2_params,
-    scoring = bas_adj,
-    cv = StratifiedKFold(5, random_state = 1, shuffle = True),
+    scoring = 'roc_auc',
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    n_jobs = -1,
+    random_state = 1,
+    n_iter = 30
+)
+model2_step1.fit(X_train, y_train)
+
+
+model2_tuned = TunedThresholdClassifierCV(
+    estimator = model2_step1.best_estimator_,
+    scoring = scorer,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    thresholds = 100,
+    refit = True,
     n_jobs = -1
 )
-
 model2_tuned.fit(X_train, y_train)
 
 pickle.dump(model2_tuned, open('logit_model_stand.bin', 'wb'))
-model2_tuned = pickle.load(open('logit_model_stand.bin', 'rb'))
 
 pred_model2 = model2_tuned.predict(X_test)
 report_model2 = classification_report(y_test, pred_model2)
 print(report_model2)
+print(f'Custom cost: {neg_cost_fun(y_test, pred_model2)}')
 ```
 
 </details>
 
                   precision    recall  f1-score   support
 
-             Bad       0.98      0.94      0.96       954
-            Good       0.64      0.84      0.72       112
+             Bad       0.96      0.99      0.97       954
+            Good       0.90      0.63      0.74       112
 
-        accuracy                           0.93      1066
-       macro avg       0.81      0.89      0.84      1066
-    weighted avg       0.94      0.93      0.94      1066
+        accuracy                           0.95      1066
+       macro avg       0.93      0.81      0.86      1066
+    weighted avg       0.95      0.95      0.95      1066
 
-## 5.5 Naive Bayes
+    Custom cost: -73
 
-### 5.5.1 No standardization of word frequencies
+## 6.3 Naive Bayes
+
+### 6.3.1 No standardization of word frequencies
 
 <details>
 
@@ -774,6 +914,7 @@ Show Python code
 from sklearn.naive_bayes import GaussianNB
 from sklearn.preprocessing import FunctionTransformer
 from imblearn.over_sampling import RandomOverSampler
+from sklearn.model_selection import GridSearchCV
 
 def fun_toarray(x):
     return x.toarray()
@@ -792,35 +933,35 @@ model3 = Pipeline([
     ('model', GaussianNB())
 ])
 
-model3_tuned_inner = TunedThresholdClassifierCV(
-    estimator = model3,
-    refit = True,
-    scoring = bas_adj,
-    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
-    thresholds = 50,
-    n_jobs = 1
-)
-
 model3_params = {
-    'estimator__oversampler__sampling_strategy': [0.12, 0.2, 0.4, 0.6, 0.8, 1.0]
+    'oversampler__sampling_strategy': [0.12, 0.2, 0.4, 0.6, 0.8, 1.0]
 }
 
-model3_tuned = GridSearchCV(
-    model3_tuned_inner,
+model3_step1 = GridSearchCV(
+    model3,
     model3_params,
-    scoring = bas_adj,
-    cv = StratifiedKFold(5, random_state = 1, shuffle = True),
+    scoring = 'roc_auc',
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
     n_jobs = -1
 )
+model3_step1.fit(X_train, y_train)
 
+model3_tuned = TunedThresholdClassifierCV(
+    estimator = model3_step1.best_estimator_,
+    refit = True,
+    scoring = scorer,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    thresholds = 100,
+    n_jobs = -1
+)
 model3_tuned.fit(X_train, y_train)
 
 pickle.dump(model3_tuned, open('nbayes_model_not_stand.bin', 'wb'))
-model3_tuned = pickle.load(open('nbayes_model_not_stand.bin', 'rb'))
 
 pred_model3 = model3_tuned.predict(X_test)
 report_model3 = classification_report(y_test, pred_model3)
 print(report_model3)
+print(f'Custom cost: {neg_cost_fun(y_test, pred_model3)}')
 ```
 
 </details>
@@ -834,7 +975,9 @@ print(report_model3)
        macro avg       0.61      0.74      0.61      1066
     weighted avg       0.89      0.74      0.79      1066
 
-### 5.5.2 Standardization of word frequencies
+    Custom cost: -1001
+
+### 6.3.2 Standardization of word frequencies
 
 <details>
 
@@ -866,32 +1009,41 @@ model4 = Pipeline([
 model4_tuned_inner = TunedThresholdClassifierCV(
     estimator = model4,
     refit = True,
-    scoring = bas_adj,
+    scoring = scorer,
     cv = StratifiedKFold(3, random_state = 1, shuffle = True),
-    thresholds = 50,
+    thresholds = 20,
     n_jobs = 1
 )
 
 model4_params = {
-    'estimator__oversampler__sampling_strategy': [0.12, 0.2, 0.4, 0.6, 0.8, 1.0]
+    'oversampler__sampling_strategy': [0.12, 0.2, 0.4, 0.6, 0.8, 1.0]
 }
 
-model4_tuned = GridSearchCV(
-    model4_tuned_inner,
+model4_step1 = GridSearchCV(
+    model4,
     model4_params,
-    scoring = bas_adj,
-    cv = StratifiedKFold(5, random_state = 1, shuffle = True),
+    scoring = 'roc_auc',
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
     n_jobs = -1
 )
+model4_step1.fit(X_train, y_train)
 
+model4_tuned = TunedThresholdClassifierCV(
+    estimator = model4_step1.best_estimator_,
+    refit = True,
+    scoring = scorer,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    thresholds = 100,
+    n_jobs = -1
+)
 model4_tuned.fit(X_train, y_train)
 
 pickle.dump(model4_tuned, open('nbayes_model_stand.bin', 'wb'))
-model4_tuned = pickle.load(open('nbayes_model_stand.bin', 'rb'))
 
 pred_model4 = model4_tuned.predict(X_test)
 report_model4 = classification_report(y_test, pred_model4)
 print(report_model4)
+print(f'Custom cost: {neg_cost_fun(y_test, pred_model4)}')
 ```
 
 </details>
@@ -899,17 +1051,19 @@ print(report_model4)
                   precision    recall  f1-score   support
 
              Bad       0.96      0.76      0.85       954
-            Good       0.27      0.73      0.39       112
+            Good       0.27      0.74      0.39       112
 
         accuracy                           0.76      1066
        macro avg       0.61      0.75      0.62      1066
     weighted avg       0.89      0.76      0.80      1066
 
-## 5.6 LDA
+    Custom cost: -945
 
-## 5.7 Random Forest
+## 6.4 LDA
 
-### 5.7.1 No standardization of word frequencies
+## 6.5 Random Forest
+
+### 6.5.1 No standardization of word frequencies
 
 <details>
 
@@ -920,7 +1074,6 @@ Show Python code
 
 ``` python
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import RandomizedSearchCV
 
 rf_model = Pipeline([
     ('dtm', CountVectorizer(
@@ -936,42 +1089,55 @@ rf_model = Pipeline([
 
 rf_params = {
     'model__n_estimators': [100, 200],
-    'model__max_depth': [10, 20, 30, 40],
+    'model__max_depth': [40, 50, 60],
     'model__max_features': np.arange(0.2, 0.85, 0.05).tolist(),
     'model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}]
 }
 
-rf_model_tuned = RandomizedSearchCV(
+rf_model_step1 = RandomizedSearchCV(
     rf_model,
     rf_params,
-    cv = StratifiedKFold(5, shuffle = True, random_state = 1),
+    cv = StratifiedKFold(3, shuffle = True, random_state = 1),
     refit = True,
-    scoring = bas_adj,
+    scoring = 'roc_auc',
     n_jobs = -1,
     random_state = 1,
-    n_iter = 80
+    n_iter = 30
+)
+rf_model_step1.fit(X_train, y_train)
+
+rf_model_tuned = TunedThresholdClassifierCV(
+    rf_model_step1.best_estimator_,
+    scoring = scorer,
+    thresholds = 100,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    refit = True,
+    n_jobs = -1
 )
 rf_model_tuned.fit(X_train, y_train)
 
-pickle.dump(rf_model_tuned, open('rf_model_not_stand2.bin', 'wb'))
+pickle.dump(rf_model_tuned, open('rf_model_not_stand.bin', 'wb'))
 
 pred_model_rf = rf_model_tuned.predict(X_test)
 report_model_rf = classification_report(y_test, pred_model_rf)
 print(report_model_rf)
+print(f'Custom cost: {neg_cost_fun(y_test, pred_model_rf)}')
 ```
 
 </details>
 
                   precision    recall  f1-score   support
 
-             Bad       0.97      0.93      0.95       954
-            Good       0.55      0.75      0.63       112
+             Bad       0.96      0.97      0.96       954
+            Good       0.72      0.64      0.68       112
 
-        accuracy                           0.91      1066
-       macro avg       0.76      0.84      0.79      1066
-    weighted avg       0.93      0.91      0.92      1066
+        accuracy                           0.94      1066
+       macro avg       0.84      0.81      0.82      1066
+    weighted avg       0.93      0.94      0.93      1066
 
-### 5.7.2 Standardization of word frequencies
+    Custom cost: -152
+
+### 6.5.2 Standardization of word frequencies
 
 <details>
 
@@ -998,41 +1164,55 @@ rf_model = Pipeline([
     ('model', RandomForestClassifier(criterion = 'entropy', random_state = 1))
 ])
 
+
 rf_params = {
     'model__n_estimators': [100, 200],
-    'model__max_depth': [10, 20, 30, 40],
+    'model__max_depth': [30, 40, 50],
     'model__max_features': np.arange(0.2, 0.85, 0.05).tolist(),
     'model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}]
 }
 
-rf_model_tuned = RandomizedSearchCV(
+rf_model_step1 = RandomizedSearchCV(
     rf_model,
     rf_params,
-    cv = StratifiedKFold(5, shuffle = True, random_state = 1),
+    cv = StratifiedKFold(3, shuffle = True, random_state = 1),
     refit = True,
-    scoring = bas_adj,
+    scoring = 'roc_auc',
     n_jobs = -1,
     random_state = 1,
-    n_iter = 100
+    n_iter = 30
+)
+rf_model_step1.fit(X_train, y_train)
+
+rf_model_tuned = TunedThresholdClassifierCV(
+    rf_model_step1.best_estimator_,
+    scoring = scorer,
+    thresholds = 100,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    refit = True,
+    n_jobs = -1
 )
 rf_model_tuned.fit(X_train, y_train)
 
-pickle.dump(rf_model_tuned, open('rf_model_stand3.bin', 'wb'))
+pickle.dump(rf_model_tuned, open('rf_model_stand.bin', 'wb'))
 
 pred_model_rf = rf_model_tuned.predict(X_test)
 report_model_rf = classification_report(y_test, pred_model_rf)
 print(report_model_rf)
+print(f'Custom cost: {neg_cost_fun(y_test, pred_model_rf)}')
 ```
 
 </details>
 
                   precision    recall  f1-score   support
 
-             Bad       0.97      0.95      0.96       954
-            Good       0.62      0.77      0.69       112
+             Bad       0.95      0.97      0.96       954
+            Good       0.72      0.61      0.66       112
 
         accuracy                           0.93      1066
-       macro avg       0.80      0.86      0.82      1066
-    weighted avg       0.94      0.93      0.93      1066
+       macro avg       0.84      0.79      0.81      1066
+    weighted avg       0.93      0.93      0.93      1066
 
-## 5.8 Boosted tree methods
+    Custom cost: -152
+
+## 6.8 Boosted tree methods
