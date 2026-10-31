@@ -20,7 +20,7 @@ crossref:
 
 2. The **naive predictor** of simply labelling all reviews as `Bad` produces a **recall of 1.0** on the `Bad` class and **accuracy of 0.89** on the test set. This comes at the cost of poor performance on the `Good` class. This predictor implies that, in a real-world scenario, all incoming messages would have to be inspected manually.
 
-3. **First impressions** of strongly tuned **logistic regression** predictors and **random forest** predictors show that test set accuracy can be improved to 0.94 to 0.95 with ease. The preferred solution so far is the tuned logistic regression predictor under TF-IDF-transformed word frequencies, which achieves test accuracy of 0.95 and a **`Bad` class recall** of **0.99**. The achieved **`Good` class recall** is **0.63**. Hence, we have **37% false-negatives** on the **`Good` class** and **1% false-negatives** on the **`Bad` class**. Given the global distribution of 89% `Bad` and 11% `Good` reviews, we can reduce the amount of overall messages to check manually by approx. 7.8% at the cost of ignoring 1% of the `Bad` messages, which is a very conservative trade-off. Further analysis on the actual costs related to this needs to be carried out elsewhere. 
+3. The recommended predictor in the given context is a regularized logistic regression predictor that achieves 0.96 recall on the `Bad` class and 0.82 recall on the `Good` class (with overall accuracy of 0.94). In comparison to the naive predictor, using this predictor will **misclassify 4% of** the **negative feedback**, while **reducing** the amount of **messages to inspect manually** by approx. **12%**. Ignoring 4% of negative feedback is still conservative and within the set goal of achieving a recall of at least 0.95. In addition, a logistic regression model is relatively lightweight compared to other models.
 
 # 2 Data
 
@@ -28,17 +28,73 @@ The anonymized dataset `amazon_com_reviews_trustpilot_20261026_anon.feather` in 
 
 For the sake of this project, only the available **reviews published since January 01, 2025** are used. This approximately gives a **cross-sectional overview of recent customer feedback**. Filtered this way, **9,688 reviews** remain for the analysis.
 
+<details><summary>Show Python imports</summary>
+
+```{python}
+# Standard libraries
+import pandas as pd
+import numpy as np
+import re
+import gc
+import pickle
+
+# Libraries for plotting
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+from wordcloud import WordCloud
+
+# Libraries for text cleaning
+import contractions
+from autocorrect import Speller
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk.stem import SnowballStemmer
+import emoji
+
+# Machine learning
+
+## Text feature extraction
+from sklearn.feature_extraction.text import TfidfTransformer, CountVectorizer
+
+## Cross validation and train-test split
+from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, TunedThresholdClassifierCV, StratifiedKFold, train_test_split
+
+## Model metrics
+from sklearn.metrics import classification_report, make_scorer, confusion_matrix, roc_curve
+
+## Oversampling
+from imblearn.over_sampling import RandomOverSampler
+
+## Pipeline building
+from sklearn.preprocessing import FunctionTransformer
+from imblearn.pipeline import Pipeline
+
+## Logistic regression
+from sklearn.linear_model import LogisticRegression
+
+## Naive Bayes
+from sklearn.naive_bayes import GaussianNB
+
+## Random forest
+from sklearn.ensemble import RandomForestClassifier
+
+## Standard gradient boosting
+from sklearn.ensemble import GradientBoostingClassifier
+
+## LightGBM
+import lightgbm as lgbm
+```
+
+</details>
+
 <details><summary>Show Python code</summary>
 
 With the following code chunk, the dataset is read into Python and filtered, so that only reviews published on January 01, 2025, or later are kept. Initially, we also optimize memory usage by adjusting selected column data types.
 
+
 ```{python}
 #| echo: True
-
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import pandas as pd
-import numpy as np
 
 # URL to the data on GitHub
 url = 'https://github.com/dschulz13/dataset-amazon_trustpilot_reviews/raw/refs/heads/main/amazon_com_reviews_trustpilot_20261026_anon.feather'
@@ -85,7 +141,7 @@ def reduce_df_size(df, verbose = True):
         print(f'Old memory usage: {old_mem:.2f}MB; new memory usage: {mem_new:.2f}MB; reduction of {change_mem:.2f}MB ({rel_mem:.2f}%)')
     return df
 
-# Make apply reformatting of columns
+# Apply reformatting of columns
 data_filt['Review_Score'] = data_filt['Review_Score'].astype(int)
 data_filt = reduce_df_size(data_filt)
 
@@ -209,13 +265,13 @@ Of course, training classification algorithms needs **pre-labelled training data
 
 In the provided context, a natural basline approach is to simply predict every review as negative, thus enforcing the manual inspection of every message afterwards. Such an approach has both advantages and disadvantages: on one hand, no crucial negative review is missed, while on the other hand this approach raises many false alarms by labelling every non-negative message as negative. Treating four- and five-star reviews as `Good` and all other reviews as `Bad`, the share of bad reviews is approx. 89%. This native approach consequently leads to an **out-of-the-box overall classification accuracy of 89%** and a **recall of 100%** on the **`Bad` class** (for stratified test samples), but has **poor precision and recall** on the **`Good` class**.
 
-The main objective of this project is hence the development of a classification algorithm to classify the Amazon.com reviews into good and bad reviews. Overall classification **accuracy** should be **improved**, while **ensuring a high precision and recall** on the **`Bad` class**, so that (a) the amount of **false alarms** is kept as **low** as possible, and (b) actual **bad reviews** are **identified reliably**.
+The main objective of this project is hence the development of a classification algorithm to classify the Amazon.com reviews into good and bad reviews. For a company such as Amazon, a suitable trade-off could be to allow for **ignoring up to 5%** of incoming negative messages, as long as the **recall on positive feedback** can be improved notably and thus filtering out messages that do not need to be investigated.
 
 # 4 Data cleaning
 
 @fig-cleaning-steps demonstrates the cleaning pipeline for the pre-filtered review data.
 
-![The data cleaning steps.](Data cleaning steps.png){#fig-cleaning-steps height=60% width=60%}
+![The data cleaning steps.](Pictures/Data cleaning steps.png){#fig-cleaning-steps height=60% width=60%}
 
 The goal of the cleaning step is two-fold: firstly, we wish to categorize the star rating into two groups. Those groups will be labelled `Good` and `Bad`. A good review is a review with a four- or five-start rating. A bad review covers the remaining star ratings. Of course other class constructions are also possible and could be checked in further analyses. For the prupose of this project, we, however, assume that a rating of three stars or less indicates a notable dissatisfaction with the companies' services. Secondly, we clean the text data. The following diagram highlights the individual cleaning steps. We proceed by combining the review title and the review sentences of a given observation into a single string. As the main steps, we replace emojis by specific textual representations, remove numbers and some punctutation, but not all such as `?` or `!`, remove leading and trailing whitespace, turn all letters into lower case, separate word contractions, do spelling corrections, remove stop words, and ultimately implement word stemming. This form of cleaning can be done on the entire data at the same time, as each observation is treated individually and the described procedure thus does not produce data leakage.
 
@@ -225,22 +281,6 @@ The goal of the cleaning step is two-fold: firstly, we wish to categorize the st
 #| echo: True
 #| eval: False
 #| include: True
-
-# Standard libraries
-import re
-import numpy as np
-import pandas as pd
-
-# Special libraries
-import contractions
-from autocorrect import Speller
-import nltk
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from nltk.stem import SnowballStemmer
-import emoji
-import gc
-from collections import Counter
 
 # Setting up spell checks and word tokenization
 nltk.download('punkt')
@@ -342,7 +382,6 @@ gc.collect()
 
 # 5 Design
 
-
 ## 5.1 Train-test split
 
 The data is split into a training set and a test set before any further preprocessing of the cleaned texts. To ensure that the test set contains at least 1,000 observations, we consider a **test share** of **11%**, resulting in a **test sample size** of **1,066**. For simplicity, we only consider such a fixed split; more elaborate but also time- and memory-consuming approaches use nested cross-validation ideas with multiple training-test splits. For the purpose of this project, the size of the random test sample is, however, large enough to allow for a generalization of the findings. The split here is stratified, ensuring that both the training and the test sample reflect the 11% and 89% shares of `Good` and `Bad` reviews in the total dataset.
@@ -350,10 +389,6 @@ The data is split into a training set and a test set before any further preproce
 <details><summary>Show Python code</summary>
 
 ```{python}
-from sklearn.model_selection import train_test_split
-import pandas as pd
-import gc
-
 data_all = pd.read_feather(f'amazon_reviews_cleaned.feather')
 
 X_train, X_test, y_train, y_test = train_test_split(
@@ -377,10 +412,6 @@ gc.collect()
 ```{python}
 #| echo: True
 #| eval: False
-
-from wordcloud import WordCloud
-import matplotlib.pyplot as plt
-import re
 
 all_text = ' '.join(X_train)
 
@@ -410,11 +441,6 @@ plt.show()
 #| fig-cap: 'A word cloud of the 200 most frequent training data word stems.'
 #| fig-align: 'center'
 
-from wordcloud import WordCloud
-import matplotlib.pyplot as plt
-import re
-import numpy as np
-
 all_text = ' '.join(X_train)
 
 x, y = np.ogrid[:1000, :1000]
@@ -438,23 +464,89 @@ plt.show()
 
 ## 5.3 Transformation of word frequencies
 
-In many instances such as regularized logistic regression, it is common to transform the input features, so that they are "on the same scale" and so that no feature dominates the regularization penalty simply due to its scaling. In the given context, we are dealing with word frequencies, which are, in some sense, already on the same scale. However, values of the features are heavily influenced by other factors such as text length. To not destroy the sparsity of the feature matrix, it is hence quite common to implement a TF-IDF transformation of word frequencies, which keeps the zero entries and transforms the non-zero entries to account for rarity of words across all texts and individual text length. This way, rare but meaningful words can gain more weight. In the following, all models will be run both with standard frequencies and transformed frequencies to investigate, which strategy performs best.
+In many instances such as regularized logistic regression, it is common to transform the input features, so that they are "on the same scale" and so that no feature dominates the regularization penalty simply due to its scaling. In the given context, we are dealing with word frequencies, which are, in some sense, already on the same scale. However, values of the features are heavily influenced by other factors such as text length. To not destroy the sparsity of the feature matrix, it is hence quite common to implement a TF-IDF transformation of word frequencies, which keeps the zero entries and transforms the non-zero entries to account for rarity of words across all texts and individual text length. This way, rare but meaningful words can gain more weight. In the following, whether or not to implement a TF-IDF transformation is made part of the hyperparameter space to select via cross-validation (CV).
 
 ## 5.4 Score function
 
 In this specific business context, defining the `Bad` class as the positive class, false-negatives and false-positives are both costly in their own rights. A false-positive creates extra manual labor, while a false-negative means ignoring a message containing negative feedback, which could have negative effects on the company's reputation. Overall, a false-negative should be seen as far more costly than a false-positive.
 
-Therefore, the selected class predictor should aim to minimize a cost function of the form
-$$C_{\text{T}} = -(C_{\text{FN}}\times N_{\text{FN}}+C_{\text{FP}}\times N_{\text{FP}}),$$
-where $N_{\text{FN}}$ and $N_{\text{FP}}$ are numbers of false-negatively and false-positively classified documents, respectively, and where $C_{\text{FN}}\geq 0$ and $C_{\text{FP}}\geq 0$ are unit-costs associated with corresponding misclassifications. $C_{\text{T}}$ is then the total cost as a negative number that needs to be maximized. In the given setup, we consider $C_{\text{FN}}=4$ and $C_{\text{FP}}=1$, so that a false-negative is four times as costly as a false-positive. Simultaneously, to avoid that classifiers simply select the naive predictor, we implemented the contraint that a `Bad` class precision $\leq 0.95$ is penalized strongly. Since the naive predictor has `Bad` class precision 0.89, this scenario is avoided.
+Hence, a self-set restriction is to have models that have a `Bad` class recall (on the test set) of at least 0.95. Misclassifying and thus ignoring more than 5% of negative feedback could be damaging to the company's reputation. Under the given condition, the selected model should then maximize the `Good` class recall. Being able to classify `Good` class messages correctly will reduce the number of messages flagged and is therefore the secondary objective.
+
+To arrive at such solutions, a two-step procedure is considered. At first, we tune general hyperparameters using the inverse area under the ROC curve for a true positive rate $\geq 0.95$. Note that the ROC curve shows the true positive rate (correctly classified as `Bad`) against the false positive rate (incorrectly specified as `Bad`, i.e. actually `Good`). The `Good` class recall is 1 minus the false positive rate, which is why we consider the area under the inverse ROC curve section specifically for the true positive rate $\geq 0.95$.  Since the ROC curve is a threshold-free measure, this approach identifies the set of hyperparameters, for which the model has a tendency to produce high `Good` class recalls in particular for high `Bad` class recall.
+
+Afterwards, we simply tune the threshold of the selected model by doing another CV with penalizing `Bad` class recall < 0.95, with the aim to maximize `Good` class recall.
+
+<details><summary></summary>
+
+```{python}
+# Custom scorers
+
+## Computes the inverse AUC for recall >= 0.95
+## Identifies estimators with high 'Good' class recall
+## when 'Bad' class recall >= 0.95
+def high_sensitivity_auc(
+    y_true,
+    y_proba,
+    min_recall = 0.95,
+    n_points = 1000,
+    pos_label = 'Bad'
+):
+    fpr, tpr, thresholds = roc_curve(
+        y_true, y_proba, pos_label = pos_label
+    )
+
+    unique_tpr, indices = np.unique(
+        tpr, return_index = True
+    )
+    unique_fpr = fpr[indices]
+
+    tpr_grid = np.linspace(
+        min_recall, 1.0, n_points
+    )
+    fpr_grid = np.interp(
+        tpr_grid,
+        unique_tpr,
+        unique_fpr
+    )
+
+    score = 1 - np.trapezoid(
+        fpr_grid, tpr_grid
+    ) / (1 - min_recall)
+
+    return score
+
+def hs_auc_scorer(estimator, X, y):
+
+    classes = list(estimator.classes_)
+    bad_idx = classes.index('Bad')
+
+    proba = estimator.predict_proba(X)[:, bad_idx]
+
+    return high_sensitivity_auc(
+        y,
+        proba,
+        min_recall = 0.95,
+        pos_label = 'Bad'
+    )
+
+def good_recall(y_true, y_pred):
+    bad_rec = recall_score(y_true, y_pred, pos_label = 'Bad')
+    if bad_rec < 0.95:
+        return -1.0
+    return recall_score(y_true, y_pred, pos_label = 'Good')
+
+good_recall_scorer = make_scorer(good_recall)
+```
+
+</details>
 
 ## 5.5 Estimation framework
 
 @fig-cv-steps shows the training and evaluation framework for most of the classifiers.
 
-![The validation and testing framework.](CV framework.png){#fig-cv-steps}
+![The validation and testing framework.](Pictures/CV framework.png){#fig-cv-steps}
 
-Following the training-test split of 89%-11%, we use 3-fold CV on the training set to identify optimal hyperparameters using the ROC-AUC criterion. Since ROC-AUC is a criterion independent from probability thresholds, it can be considered to select an overall well-rounded classifier. In this step, we consider randomized CV in almost all cases with selection of 30 instances from the entire parameter grid. Only in cases with small hyperparameter grids to begin with, we will implement the entire grid search. In a separate step, we use 3-fold CV using our own scoring function on the training data using the previously identified hyperparameters to ifentify the optimal probability threshold for classification. Given the hyperparameters and the threshold, the selected model is refitted to the entire training data and evaluated on the test data.
+Following the training-test split of 89%-11%, we use 3-fold CV on the training set to identify optimal hyperparameters using the ROC-AUC criterion. Since ROC-AUC is a criterion independent from probability thresholds, it can be considered to select an overall well-rounded classifier. In this step, we consider randomized CV in almost all cases with selection of 30 instances from the entire parameter grid. Only in cases with small hyperparameter grids to begin with, we will implement the entire grid search. In a separate step, we use 3-fold CV using our own scoring function on the training data using the previously identified hyperparameters to ifentify the optimal probability threshold for classification. Given the hyperparameters and the threshold, the selected model is refitted to the entire training data and evaluated on the test data. In addition to the second CV step, we also investigate the ROC curve of the selected predictor from the first CV step to see different 
 
 This two-step procedure benefits from a relatively small computational burden that will identify a reliable class predictor in a small amount of time. A mathematically more elaborate approach would involve nested CV, where for each setting of hyperparameters in the  outer CV loop, an optimal threshold would be identified on an inner CV loop. Since such an idea is time consuming for larger hyperparameter grids and complex models, we ignore this idea in this project.
 
@@ -471,18 +563,6 @@ As indicated earlier, the baseline approach of simply always predicting the `Bad
 <details><summary>Show Python code</summary>
 
 ```{python}
-from sklearn.metrics import classification_report, make_scorer, confusion_matrix, precision_score
-import numpy as np
-
-def neg_cost_fun(y_true, y_pred, c_fn = 4, c_fp = 1):
-    prec = precision_score(y_true, y_pred, pos_label = 'Bad')
-    if prec <= 0.95:
-        return -1000000.0
-    conf = confusion_matrix(y_true, y_pred)
-    return -(c_fp * conf[1, 0].item() + c_fn * conf[0, 1].item())
-
-scorer = make_scorer(neg_cost_fun)
-
 pred_baseline = np.array(['Bad'] * len(y_test))
 ```
 
@@ -506,9 +586,7 @@ print(classification_report(y_test, pred_baseline,
 
 ## 6.2 Logistic regression
 
-### 6.2.1 No standardization of word frequencies
-
-As a first, more elaborate approach, a fine-tuned regularized logistic regression is implemented. In the outer cross-validation, we tune the penalty term (`C`), the class weights (`class_weight`), and the form of regularization (`l1_ratio`), while the inner cross-validation handles the probability threshold selection. Ultimately, `C = 0.1`, `class_weight = {'Bad': 1.0, 'Good': 4.0}`, and `l1_ratio = 0.0` are selected, corresponding to a strongly regularized ridge logistic regression, where incorrect classification of the `Good` class costs four times more than an incorrect classification of the `Bad` class. With these hyperparameters, the model is then refitted to the entire training sample, while re-selecting the probability threshold with cross-validation to be approx. 0.7677. 
+As a first, more elaborate approach, a fine-tuned regularized logistic regression is implemented. In the outer cross-validation, we tune the penalty term (`C`), the class weights (`class_weight`), and the form of regularization (`l1_ratio`). Additionally, we include different forms of token transformation in the tuning process. This way, we decide, whether or not to only use unigrams or both uni- and bigrams of words, and whther or not to do a tf-idf transformation of the word frequencies. Ultimately, `C = 10`, `class_weight = 'balanced'`, `l1_ratio = 0.5`,  `ngram_range': (1, 2)}`, and a tf-idf transformation with sublinear text frequency are selected. For this first tuning, we consider the area under the inverse ROC curve for recall $\geq 0.95$. This way, the hyperparameters are selected to work particularly well in a high-recall setting while still allowing for some flexibility in the subsequent threshold selection. Hence with these hyperparameters, a second CV is done on the training sample, where the probability threshold is selected following the recall on the `Good` class. Here, we penalize cases, where the `Bad` class recall drops below 0.95. This way, we select the threshold (given the hyperparameters), for which the `Good` class is maximized under the condition that the `Bad` class recall is not below 0.95.
 
 <details><summary>Show Python code</summary>
 
@@ -517,19 +595,13 @@ As a first, more elaborate approach, a fine-tuned regularized logistic regressio
 #| eval: True
 #| include: False
 
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import RandomizedSearchCV, TunedThresholdClassifierCV, StratifiedKFold
-from imblearn.pipeline import Pipeline
-import pickle
-
 ### General settings for CountVectorizer
 tokenizer = str.split    # create words by splitting cleaned texts by whitespace
 preprocessor = None      # no additional preprocessing
 token_pattern = None     # no further token identification
-lowercase = False        # no further lower case transformation need
-min_df = 10              # consider only words appearing in at least ten documents
-max_df = 1000000000      # (practically) no limit for number of documents with a specific word
+lowercase = False        # no further lower case transformation needed
+min_df = 5               # consider only words appearing in at least five documents
+max_df = 1.0             # no limit for number of documents with a specific word
 
 ### Base settings for logistic regression
 solver = 'saga'
@@ -541,26 +613,20 @@ max_iter = 5000
 #| warning: False
 #| eval: False
 
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, TunedThresholdClassifierCV, StratifiedKFold
-from imblearn.pipeline import Pipeline
-import pickle
-
 ### General settings for CountVectorizer
 tokenizer = str.split    # create words by splitting cleaned texts by whitespace
 preprocessor = None      # no additional preprocessing
 token_pattern = None     # no further token identification
 lowercase = False        # no further lower case transformation need
-min_df = 10              # consider only words appearing in at least ten documents
-max_df = 1000000000      # (practically) no limit for number of documents with a specific word
+min_df = 5               # consider only words appearing in at least five documents
+max_df = 1.0             # no limit for number of documents with a specific word
 
 ### Base settings for logistic regression
 solver = 'saga'
 random_state = 1
 max_iter = 5000
 
-model1 = Pipeline([
+logit_model = Pipeline([
     # Create word frequency variables for each review from the training set
     ('dtm', CountVectorizer(
         tokenizer = tokenizer,    
@@ -568,8 +634,11 @@ model1 = Pipeline([
         token_pattern = token_pattern,     
         lowercase = lowercase,        
         min_df = min_df,               
-        max_df = max_df        
+        max_df = max_df,
+        dtype = np.int16
     )),
+    # Word frequency tranformer
+    ('tfidf', TfidfTransformer()),
     # Model definition
     ('model', LogisticRegression(
         solver = solver,
@@ -578,163 +647,80 @@ model1 = Pipeline([
     ))
 ])
 
-model1_params = {
-    'model__C': [0.01, 0.1, 1, 10, 100],
-    'model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}],
-    'model__l1_ratio': [0.0, 0.25, 0.5, 0.75 , 1.0]
+logit_params = {
+    'model__C': [0.01, 0.1, 1, 10],
+    'model__class_weight': [None, 'balanced', {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}],
+    'model__l1_ratio': [0.0, 0.5, 1.0],
+    'tfidf': [
+        TfidfTransformer(
+            norm = 'l2',
+            use_idf = True,
+            smooth_idf = True,
+            sublinear_tf = True
+        ),
+        TfidfTransformer(
+            norm = 'l2',
+            use_idf = True,
+            smooth_idf = True,
+            sublinear_tf = False
+        ),        
+        'passthrough'
+    ],
+    'dtm__ngram_range': [(1, 1), (1, 2)]
 }
 
-model1_step1 = RandomizedSearchCV(
-    model1,
-    model1_params,
-    scoring = 'roc_auc',
+logit_step1 = RandomizedSearchCV(
+    logit_model,
+    logit_params,
+    scoring = hs_auc_scorer,
     cv = StratifiedKFold(3, random_state = 1, shuffle = True),
     n_jobs = -1,
     random_state = 1,
     n_iter = 30
 )
 
-model1_step1.fit(X_train, y_train)
-model1_tuned = TunedThresholdClassifierCV(
-    estimator = model1_step1.best_estimator_,
-    scoring = scorer,
+logit_step1.fit(X_train, y_train)
+
+pickle.dump(logit_step1, open('Predictor models/logit_base.bin', 'wb'))
+
+logit_tuned = TunedThresholdClassifierCV(
+    estimator = logit_step1.best_estimator_,
+    scoring = good_recall_scorer,
     cv = StratifiedKFold(3, random_state = 1, shuffle = True),
     thresholds = 100,
     refit = True,
-    n_jobs = -1
-)
-model1_tuned.fit(X_train, y_train)
-
-pickle.dump(model1_tuned, open('logit_model_not_stand.bin', 'wb'))
-
-pred_model1 = model1_tuned.predict(X_test)
-report_model1 = classification_report(y_test, pred_model1)
-print(report_model1)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model1)}')
-```
-
-</details>
-
-The test sample evaluation is summarized in the following Python report. In comparison to the naive approach, the overall accuracy could be increased from 0.89 to 0.92. The average (unweighted) recall increased from 0.5 to 0.89. Most indicators increase, with the exception of the `Bad` class recall, which decreased from 1.00 to 0.93: the improvement in the other measures comes at the cost of not being able to identify all the `Bad` labels.
-
-```{python}
-#| echo: False
-#| eval: True
-#| include: True
-
-import pickle
-model1_tuned = pickle.load(open('logit_model_not_stand.bin', 'rb'))
-pred_model1 = model1_tuned.predict(X_test)
-report_model1 = classification_report(y_test, pred_model1)
-print(report_model1)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model1)}')
-```
-
-### 6.2.2 Standardization of word frequencies
-
-<details><summary>Show Python code</summary>
-
-```{python}
-#| echo: False
-#| eval: True
-#| include: False
-
-from sklearn.feature_extraction.text import TfidfTransformer
-```
-
-```{python}
-#| echo: True
-#| eval: False
-#| include: True
-
-from sklearn.feature_extraction.text import TfidfTransformer
-
-model2 = Pipeline([
-    ('dtm', CountVectorizer(
-        tokenizer = tokenizer,    
-        preprocessor = preprocessor,      
-        token_pattern = token_pattern,     
-        lowercase = lowercase,        
-        min_df = min_df,               
-        max_df = max_df        
-    )),
-    ('standard', TfidfTransformer(
-        use_idf = True,
-        norm = "l2", 
-        sublinear_tf = True
-    )),
-    ('model', LogisticRegression(
-        solver = solver,
-        random_state = random_state,
-        max_iter = max_iter
-    ))
-])
-
-model2_params = {
-    'model__C': [0.01, 0.1, 1, 10, 100],
-    'model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}],
-    'model__l1_ratio': [0.0, 0.25, 0.5, 0.75, 1.0]
-}
-
-model2_step1 = RandomizedSearchCV(
-    model2,
-    model2_params,
-    scoring = 'roc_auc',
-    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
     n_jobs = -1,
-    random_state = 1,
-    n_iter = 30
+    store_cv_results = True
 )
-model2_step1.fit(X_train, y_train)
+logit_tuned.fit(X_train, y_train)
 
+pickle.dump(logit_tuned, open('Predictor models/logit_tuned.bin', 'wb'))
 
-model2_tuned = TunedThresholdClassifierCV(
-    estimator = model2_step1.best_estimator_,
-    scoring = scorer,
-    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
-    thresholds = 100,
-    refit = True,
-    n_jobs = -1
-)
-model2_tuned.fit(X_train, y_train)
+logit_pred = logit_tuned.predict(X_test)
 
-pickle.dump(model2_tuned, open('logit_model_stand.bin', 'wb'))
+np.save('Test predictions/logit_pred.npy', logit_pred)
 
-pred_model2 = model2_tuned.predict(X_test)
-report_model2 = classification_report(y_test, pred_model2)
-print(report_model2)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model2)}')
+print(classification_report(y_test, logit_pred))
 ```
 
 </details>
 
+The test sample evaluation is summarized in the following Python report. In comparison to the naive approach, the overall accuracy could be increased from 0.89 to 0.94. The average (unweighted) recall increased from 0.5 to 0.89. Most indicators increase, with the exception of the `Bad` class recall, which decreased from 1.00 to 0.96. Notably, the `Good` class recall increased to 0.82, which is a clear improvement over the naive approach.
+
+In accordance with these results, 96% of actual `Bad` messages would flag a manual inspection, and 18% of `Good` messages. Given the common proportions of these types of messages, the logistic regression means a **reduction** in the **flagged messages** of **approx. 12%** compared to the naive approach. The **cost** is that about **4%** of **`Bad` messages** are **ignored**.
 
 ```{python}
 #| echo: False
 #| eval: True
 #| include: True
 
-model2_tuned = pickle.load(open('logit_model_stand.bin', 'rb'))
-pred_model2 = model2_tuned.predict(X_test)
-report_model2 = classification_report(y_test, pred_model2)
-print(report_model2)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model2)}')
+logit_pred = np.load('Test predictions/logit_pred.npy')
+logit_report = classification_report(y_test, logit_pred)
+print(logit_report)
 ```
 
 ## 6.3 Naive Bayes
 
-### 6.3.1 No standardization of word frequencies
-
-```{python}
-#| echo: False
-#| eval: True
-#| include: False
-
-from sklearn.naive_bayes import GaussianNB
-from sklearn.preprocessing import FunctionTransformer
-from imblearn.over_sampling import RandomOverSampler
-```
-
 <details><summary>Show Python code</summary>
 
 ```{python}
@@ -742,57 +728,70 @@ from imblearn.over_sampling import RandomOverSampler
 #| eval: False
 #| include: True
 
-from sklearn.naive_bayes import GaussianNB
-from sklearn.preprocessing import FunctionTransformer
-from imblearn.over_sampling import RandomOverSampler
-from sklearn.model_selection import GridSearchCV
-
 def fun_toarray(x):
     return x.toarray()
 
-model3 = Pipeline([
+nbayes_model = Pipeline([
     ('dtm', CountVectorizer(
         tokenizer = tokenizer,    
         preprocessor = preprocessor,      
         token_pattern = token_pattern,     
         lowercase = lowercase,        
         min_df = min_df,               
-        max_df = max_df        
+        max_df = max_df,
+        dtype = np.int16   
     )),
+    ('tfidf', TfidfTransformer()),
     ('oversampler', RandomOverSampler(random_state = 1)),
     ('to_dense', FunctionTransformer(fun_toarray, accept_sparse = True)),
     ('model', GaussianNB())
 ])
 
-model3_params = {
-    'oversampler__sampling_strategy': [0.12, 0.2, 0.4, 0.6, 0.8, 1.0]
+nbayes_params = {
+    'oversampler__sampling_strategy': [0.12, 0.2, 0.4, 0.6, 0.8, 1.0],
+    'dtm__ngram_range': [(1, 1), (1, 2)],
+    'tfidf': [
+        TfidfTransformer(
+            norm = 'l2',
+            use_idf = True,
+            smooth_idf = True,
+            sublinear_tf = True
+        ),
+        TfidfTransformer(
+            norm = 'l2',
+            use_idf = True,
+            smooth_idf = True,
+            sublinear_tf = False
+        ),        
+        'passthrough'
+    ]
 }
 
-model3_step1 = GridSearchCV(
-    model3,
-    model3_params,
-    scoring = 'roc_auc',
+nbayes_step1 = GridSearchCV(
+    nbayes_model,
+    nbayes_params,
+    scoring = hs_auc_scorer,
     cv = StratifiedKFold(3, random_state = 1, shuffle = True),
     n_jobs = -1
 )
-model3_step1.fit(X_train, y_train)
+nbayes_step1.fit(X_train, y_train)
 
-model3_tuned = TunedThresholdClassifierCV(
-    estimator = model3_step1.best_estimator_,
-    refit = True,
-    scoring = scorer,
+pickle.dump(nbayes_step1, open('Predictor models/nbayes_base.bin', 'wb'))
+
+nbayes_tuned = TunedThresholdClassifierCV(
+    estimator = nbayes_step1.best_estimator_,
+    scoring = good_recall_scorer,
     cv = StratifiedKFold(3, random_state = 1, shuffle = True),
     thresholds = 100,
+    refit = True,
     n_jobs = -1
 )
-model3_tuned.fit(X_train, y_train)
+nbayes_tuned.fit(X_train, y_train)
 
-pickle.dump(model3_tuned, open('nbayes_model_not_stand.bin', 'wb'))
-
-pred_model3 = model3_tuned.predict(X_test)
-report_model3 = classification_report(y_test, pred_model3)
-print(report_model3)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model3)}')
+pickle.dump(nbayes_tuned, open('Predictor models/nbayes_tuned.bin', 'wb'))
+nbayes_pred = nbayes_tuned.predict(X_test)
+np.save('Test predictions/nbayes_pred.npy', nbayes_pred)
+print(classification_report(y_test, nbayes_pred))
 ```
 
 </details>
@@ -802,180 +801,12 @@ print(f'Custom cost: {neg_cost_fun(y_test, pred_model3)}')
 #| eval: True
 #| include: True
 
-from sklearn.naive_bayes import GaussianNB
-from sklearn.preprocessing import FunctionTransformer
-from imblearn.over_sampling import RandomOverSampler
-
-def fun_toarray(x):
-    return x.toarray()
-
-model3_tuned = pickle.load(open('nbayes_model_not_stand.bin', 'rb'))
-pred_model3 = model3_tuned.predict(X_test)
-report_model3 = classification_report(y_test, pred_model3)
-print(report_model3)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model3)}')
+nbayes_pred = np.load('Test predictions/nbayes_pred.npy')
+nbayes_report = classification_report(y_test, nbayes_pred)
+print(nbayes_report)
 ```
 
-### 6.3.2 Standardization of word frequencies
-
-<details><summary>Show Python code</summary>
-
-```{python}
-#| echo: True
-#| eval: False
-#| include: True
-
-model4 = Pipeline([
-    ('dtm', CountVectorizer(
-        tokenizer = tokenizer,    
-        preprocessor = preprocessor,      
-        token_pattern = token_pattern,     
-        lowercase = lowercase,        
-        min_df = min_df,               
-        max_df = max_df        
-    )),
-    ('standard', TfidfTransformer(
-        use_idf = True,
-        norm = "l2", 
-        sublinear_tf = True
-    )),
-    ('oversampler', RandomOverSampler(random_state = 1)),    
-    ('to_dense', FunctionTransformer(fun_toarray, accept_sparse = True)),
-    ('model', GaussianNB())
-])
-
-model4_tuned_inner = TunedThresholdClassifierCV(
-    estimator = model4,
-    refit = True,
-    scoring = scorer,
-    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
-    thresholds = 20,
-    n_jobs = 1
-)
-
-model4_params = {
-    'oversampler__sampling_strategy': [0.12, 0.2, 0.4, 0.6, 0.8, 1.0]
-}
-
-model4_step1 = GridSearchCV(
-    model4,
-    model4_params,
-    scoring = 'roc_auc',
-    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
-    n_jobs = -1
-)
-model4_step1.fit(X_train, y_train)
-
-model4_tuned = TunedThresholdClassifierCV(
-    estimator = model4_step1.best_estimator_,
-    refit = True,
-    scoring = scorer,
-    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
-    thresholds = 100,
-    n_jobs = -1
-)
-model4_tuned.fit(X_train, y_train)
-
-pickle.dump(model4_tuned, open('nbayes_model_stand.bin', 'wb'))
-
-pred_model4 = model4_tuned.predict(X_test)
-report_model4 = classification_report(y_test, pred_model4)
-print(report_model4)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model4)}')
-```
-
-</details>
-
-```{python}
-#| echo: False
-#| eval: True
-#| include: True
-
-model4_tuned = pickle.load(open('nbayes_model_stand.bin', 'rb'))
-pred_model4 = model4_tuned.predict(X_test)
-report_model4 = classification_report(y_test, pred_model4)
-print(report_model4)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model4)}')
-```
-
-## 6.4 LDA
-
-## 6.5 Random Forest
-
-### 6.5.1 No standardization of word frequencies
-
-<details><summary>Show Python code</summary>
-
-```{python}
-#| echo: True
-#| eval: False
-
-from sklearn.ensemble import RandomForestClassifier
-
-rf_model = Pipeline([
-    ('dtm', CountVectorizer(
-        tokenizer = tokenizer,    
-        preprocessor = preprocessor,      
-        token_pattern = token_pattern,     
-        lowercase = lowercase,        
-        min_df = min_df,               
-        max_df = max_df        
-    )),
-    ('model', RandomForestClassifier(criterion = 'entropy', random_state = 1))
-])
-
-rf_params = {
-    'model__n_estimators': [100, 200],
-    'model__max_depth': [40, 50, 60],
-    'model__max_features': np.arange(0.2, 0.85, 0.05).tolist(),
-    'model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}]
-}
-
-rf_model_step1 = RandomizedSearchCV(
-    rf_model,
-    rf_params,
-    cv = StratifiedKFold(3, shuffle = True, random_state = 1),
-    refit = True,
-    scoring = 'roc_auc',
-    n_jobs = -1,
-    random_state = 1,
-    n_iter = 30
-)
-rf_model_step1.fit(X_train, y_train)
-
-rf_model_tuned = TunedThresholdClassifierCV(
-    rf_model_step1.best_estimator_,
-    scoring = scorer,
-    thresholds = 100,
-    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
-    refit = True,
-    n_jobs = -1
-)
-rf_model_tuned.fit(X_train, y_train)
-
-pickle.dump(rf_model_tuned, open('rf_model_not_stand.bin', 'wb'))
-
-pred_model_rf = rf_model_tuned.predict(X_test)
-report_model_rf = classification_report(y_test, pred_model_rf)
-print(report_model_rf)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model_rf)}')
-```
-
-</details>
-
-```{python}
-#| echo: False
-#| eval: True
-
-rf_model_tuned = pickle.load(open('rf_model_not_stand.bin', 'rb'))
-
-pred_model_rf = rf_model_tuned.predict(X_test)
-report_model_rf = classification_report(y_test, pred_model_rf)
-print(report_model_rf)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model_rf)}')
-```
-
-### 6.5.2 Standardization of word frequencies
+## 6.4 Random Forest
 
 <details><summary>Show Python code</summary>
 
@@ -990,52 +821,67 @@ rf_model = Pipeline([
         token_pattern = token_pattern,     
         lowercase = lowercase,        
         min_df = min_df,               
-        max_df = max_df        
+        max_df = max_df,
+        dtype = np.int16        
     )),
-    ('standard', TfidfTransformer(
-        use_idf = True,
-        norm = "l2", 
-        sublinear_tf = True
-    )),    
-    ('model', RandomForestClassifier(criterion = 'entropy', random_state = 1))
+    ('tfidf', TfidfTransformer()),
+    ('model', RandomForestClassifier(criterion = 'gini', random_state = 1))
 ])
 
-
 rf_params = {
-    'model__n_estimators': [100, 200],
-    'model__max_depth': [30, 40, 50],
-    'model__max_features': np.arange(0.2, 0.85, 0.05).tolist(),
-    'model__class_weight': [None, 'balanced', {'Bad': 2.0, 'Good': 1.0}, {'Bad': 1.0, 'Good': 2.0}, {'Bad': 1.0, 'Good': 4.0}]
+    'model__n_estimators': [100, 200, 400, 800],
+    'model__max_depth': [None, 10, 20, 40, 60],
+    'model__max_features': ['sqrt', 'log2', 0.1, 0.3, 0.5],
+    'model__min_samples_split': [2, 5, 10, 20],
+    'model__min_samples_leaf': [1, 2, 5, 10],
+    'model__class_weight': [None, 'balanced', {'Bad': 1.0, 'Good': 2.0}],
+    'tfidf': [
+        TfidfTransformer(
+            norm = 'l2',
+            use_idf = True,
+            smooth_idf = True,
+            sublinear_tf = True
+        ),
+        TfidfTransformer(
+            norm = 'l2',
+            use_idf = True,
+            smooth_idf = True,
+            sublinear_tf = False
+        ),        
+        'passthrough'
+    ],
+    'dtm__ngram_range': [(1, 1), (1, 2)]
 }
 
-rf_model_step1 = RandomizedSearchCV(
+rf_step1 = RandomizedSearchCV(
     rf_model,
     rf_params,
     cv = StratifiedKFold(3, shuffle = True, random_state = 1),
     refit = True,
-    scoring = 'roc_auc',
+    scoring = hs_auc_scorer,
     n_jobs = -1,
     random_state = 1,
     n_iter = 30
 )
-rf_model_step1.fit(X_train, y_train)
+rf_step1.fit(X_train, y_train)
 
-rf_model_tuned = TunedThresholdClassifierCV(
-    rf_model_step1.best_estimator_,
-    scoring = scorer,
+pickle.dump(rf_step1, open('Predictor models/rf_base.bin', 'wb'))
+
+rf_tuned = TunedThresholdClassifierCV(
+    rf_step1.best_estimator_,
+    scoring = good_recall_scorer,
     thresholds = 100,
     cv = StratifiedKFold(3, random_state = 1, shuffle = True),
     refit = True,
     n_jobs = -1
 )
-rf_model_tuned.fit(X_train, y_train)
+rf_tuned.fit(X_train, y_train)
+pickle.dump(rf_tuned, open('Predictor models/rf_tuned.bin', 'wb'))
 
-pickle.dump(rf_model_tuned, open('rf_model_stand.bin', 'wb'))
+rf_pred= rf_tuned.predict(X_test)
+np.save('Test predictions/rf_pred.npy', rf_pred)
 
-pred_model_rf = rf_model_tuned.predict(X_test)
-report_model_rf = classification_report(y_test, pred_model_rf)
-print(report_model_rf)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model_rf)}')
+print(classification_report(y_test, rf_pred))
 ```
 
 </details>
@@ -1043,19 +889,20 @@ print(f'Custom cost: {neg_cost_fun(y_test, pred_model_rf)}')
 ```{python}
 #| echo: False
 #| eval: True
-#| include: True
 
-rf_model2_tuned = pickle.load(open('rf_model_stand.bin', 'rb'))
-pred_model_rf2 = rf_model2_tuned.predict(X_test)
-report_model_rf2 = classification_report(y_test, pred_model_rf2)
-print(report_model_rf2)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model_rf2)}')
+rf_pred = np.load('Test predictions/rf_pred.npy')
+rf_report = classification_report(y_test, rf_pred)
+print(rf_report)
 ```
 
-## 6.8 Boosted tree methods
+## 6.5 Boosted tree methods
+
+### 6.5.1 Standard gradient boosting
+
+<details><summary>Show Python code</summary>
 
 ```{python}
-from sklearn.ensemble import GradientBoostingClassifier
+#| eval: False
 
 boost_model = Pipeline([
     ('dtm', CountVectorizer(
@@ -1064,63 +911,161 @@ boost_model = Pipeline([
         token_pattern = token_pattern,     
         lowercase = lowercase,        
         min_df = min_df,               
-        max_df = max_df        
+        max_df = max_df,
+        dtype = np.int16        
     )),
+    ('tfidf', TfidfTransformer()),
     ('sampler', RandomOverSampler(random_state = 1)),
-    ('model', GradientBoostingClassifier(loss = 'log_loss', random_state = 1))
+    ('model', GradientBoostingClassifier(random_state = 1))
 ])
 
 boost_params = {
     'sampler__sampling_strategy': [0.2, 0.4, 0.6, 0.8, 1.0],
-    'model__n_estimators': [100, 200],
-    'model__max_depth': [20, 30, 40],
-    'model__max_features': np.arange(0.2, 0.85, 0.05).tolist(),
-    'model__learning_rate': [0.01, 0.1, 1]
+    'model__n_estimators': [100, 200, 400, 800],
+    'model__max_depth': [None, 10, 20, 40, 60],
+    'model__max_features': ['sqrt', 'log2', 0.1, 0.3, 0.5],
+    'model__min_samples_split': [2, 5, 10, 20],
+    'model__min_samples_leaf': [1, 2, 5, 10],
+    'model__learning_rate': [0.01, 0.1, 1],
+    'model__loss': ['log_loss', 'exponential'],
+    'tfidf': [
+        'passthrough',
+        TfidfTransformer(
+            sublinear_tf = True
+        ),
+        TfidfTransformer(
+            sublinear_tf = False
+        )
+    ],
+    'dtm__ngram_range': [(1, 1), (1, 2)]
 }
 
-boost_model_step1 = RandomizedSearchCV(
+boost_step1 = RandomizedSearchCV(
     boost_model,
     boost_params,
     cv = StratifiedKFold(3, shuffle = True, random_state = 1),
     refit = True,
-    scoring = 'roc_auc',
+    scoring = hs_auc_scorer,
     n_jobs = -1,
     random_state = 1,
     n_iter = 30
 )
-boost_model_step1.fit(X_train, y_train)
+boost_step1.fit(X_train, y_train)
 
-boost_model_tuned = TunedThresholdClassifierCV(
-    boost_model_step1.best_estimator_,
-    scoring = scorer,
+pickle.dump(boost_step1, open('Predictor models/boost_base.bin', 'wb'))
+
+boost_tuned = TunedThresholdClassifierCV(
+    boost_step1.best_estimator_,
+    scoring = good_recall_scorer,
     thresholds = 100,
     cv = StratifiedKFold(3, random_state = 1, shuffle = True),
     refit = True,
     n_jobs = -1
 )
-boost_model_tuned.fit(X_train, y_train)
+boost_tuned.fit(X_train, y_train)
+pickle.dump(boost_tuned, open('Predictor models/boost_tuned.bin', 'wb'))
 
-pickle.dump(boost_model_tuned, open('boost_model_not_stand.bin', 'wb'))
+boost_pred = boost_tuned.predict(X_test)
+np.save('Test predictions/boost_pred.npy', boost_pred)
 
-pred_model_boost = boost_model_tuned.predict(X_test)
-report_model_boost = classification_report(y_test, pred_model_boost)
-print(report_model_boost)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model_boost)}')
-
+print(classification_report(y_test, boost_pred))
 ```
 
+</details>
 
 ```{python}
 #| echo: False
 #| eval: True
 #| include: True
 
-del (rf_model_tuned, rf_model2_tuned)
-gc.collect()
+boost_pred = np.load('Test predictions/boost_pred.npy')
+boost_report = classification_report(y_test, boost_pred)
+print(boost_report)
+```
 
-boost_model_tuned = pickle.load(open('boost_model_not_stand.bin', 'rb'))
-pred_model_boost = boost_model_tuned.predict(X_test)
-report_model_boost = classification_report(y_test, pred_model_boost)
-print(report_model_boost)
-print(f'Custom cost: {neg_cost_fun(y_test, pred_model_boost)}')
+### 6.5.2 LightGBM
+
+<details><summary>Show Python code</summary>
+
+```{python}
+#| eval: False
+
+pipeline = Pipeline([
+    ('dtm', CountVectorizer(
+        tokenizer = tokenizer,    
+        preprocessor = preprocessor,      
+        token_pattern = token_pattern,     
+        lowercase = lowercase,        
+        min_df = min_df,               
+        max_df = max_df,
+        dtype = np.float32
+    )),
+    ('tfidf', TfidfTransformer()),
+    ('model', lgb.LGBMClassifier(random_state = 1))
+])
+
+lgbm_params = {
+    'dtm__ngram_range': [(1, 1), (1, 2)],
+    'model__learning_rate': [0.001, 0.01, 0.1],
+    'model__boosting_type': ['gbdt'],
+    'model__n_estimators': [300, 500, 800, 1200],
+    'model__num_leaves': [15, 31, 63, 127],
+    'model__max_depth': [-1, 5, 10, 15],
+    'model__min_child_samples': [10, 20, 40, 80],
+    'model__colsample_bytree': [0.7, 0.85, 1.0],
+    'model__reg_alpha': [0, 0.1, 1, 5],
+    'model__reg_lambda': [0, 0.1, 1, 5],
+    'model__is_unbalance': [True, False],
+    'tfidf': [
+        'passthrough',
+        TfidfTransformer(sublinear_tf = True),
+        TfidfTransformer(sublinear_tf = False),
+    ]
+}
+
+lgbm_base = RandomizedSearchCV(
+    pipeline,
+    lgbm_params,
+    random_state = 1,
+    n_iter = 30,
+    scoring = hs_auc_scorer,
+    cv = StratifiedKFold(3, shuffle = True, random_state = 1),
+    refit = True,
+    n_jobs = -1   
+)
+
+lgbm_base.fit(X_train, y_train)
+
+pickle.dump(lgbm_base, open('Predictor models/lgbm_base.bin', 'wb'))
+
+lgbm_tuned = TunedThresholdClassifierCV(
+    lgbm_base.best_estimator_,
+    scoring = good_recall_scorer,
+    thresholds = 100,
+    cv = StratifiedKFold(3, random_state = 1, shuffle = True),
+    refit = True,
+    n_jobs = -1,
+    store_cv_results = True
+)    
+
+lgbm_tuned.fit(X_train, y_train)
+
+pickle.dump(lgbm_tuned, open('Predictor models/lgbm_tuned.bin', 'wb'))
+
+lgbm_pred = lgbm_tuned.predict(X_test)
+np.save('lgbm_pred.npy', lgbm_pred)
+print(classification_report(y_test, lgbm_pred))
+```
+
+</details>
+
+
+```{python}
+#| eval: True
+#| echo: False
+#| include: True
+
+lgbm_pred = np.load('Test predictions/lgbm_pred.npy')
+lgbm_report = classification_report(y_test, lgbm_pred)
+print(lgbm_report)
 ```
