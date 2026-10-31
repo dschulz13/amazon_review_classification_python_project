@@ -61,7 +61,7 @@ from sklearn.feature_extraction.text import TfidfTransformer, CountVectorizer
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, TunedThresholdClassifierCV, StratifiedKFold, train_test_split
 
 ## Model metrics
-from sklearn.metrics import classification_report, make_scorer, confusion_matrix, roc_curve
+from sklearn.metrics import classification_report, make_scorer, roc_curve, recall_score
 
 ## Oversampling
 from imblearn.over_sampling import RandomOverSampler
