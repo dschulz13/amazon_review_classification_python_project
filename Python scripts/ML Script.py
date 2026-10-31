@@ -18,7 +18,7 @@ from sklearn.ensemble import RandomForestClassifier
 
 from sklearn.ensemble import GradientBoostingClassifier
 
-import lightgbm as lgb
+import lightgbm as lgbm
 
 # Custom scorers
 
@@ -420,7 +420,7 @@ pipeline = Pipeline([
         dtype = np.float32
     )),
     ('tfidf', TfidfTransformer()),
-    ('model', lgb.LGBMClassifier(random_state = 1))
+    ('model', lgbm.LGBMClassifier(random_state = 1))
 ])
 
 lgbm_params = {
