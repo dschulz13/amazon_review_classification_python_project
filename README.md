@@ -13,14 +13,15 @@ November 01, 2026
     frequencies](#53-transformation-of-word-frequencies)
   - [5.4 Score function](#54-score-function)
   - [5.5 Estimation framework](#55-estimation-framework)
+  - [5.6 Pipeline](#56-pipeline)
 - [6 Analysis](#6-analysis)
   - [6.1 Baseline prediction](#61-baseline-prediction)
   - [6.2 Logistic regression](#62-logistic-regression)
   - [6.3 Naive Bayes](#63-naive-bayes)
   - [6.4 Random Forest](#64-random-forest)
   - [6.5 Boosted tree methods](#65-boosted-tree-methods)
-  - [6.7 Model comparison](#67-model-comparison)
-  - [6.8 Feature importance](#68-feature-importance)
+  - [6.6 Model comparison](#66-model-comparison)
+  - [6.7 Feature importance](#67-feature-importance)
 
 # 1 Executive summary
 
@@ -631,16 +632,38 @@ should then maximize the `Good` class recall. Being able to classify
 flagged and is therefore the secondary objective.
 
 To arrive at such solutions, a two-step procedure is considered. At
-first, we tune general hyperparameters using the inverse area under the
-ROC curve for a true positive rate $\geq 0.95$. Note that the ROC curve
-shows the true positive rate (correctly classified as `Bad`) against the
-false positive rate (incorrectly specified as `Bad`, i.e. actually
-`Good`). The `Good` class recall is 1 minus the false positive rate,
-which is why we consider the area under the inverse ROC curve section
-specifically for the true positive rate $\geq 0.95$. Since the ROC curve
-is a threshold-free measure, this approach identifies the set of
+first, we tune general hyperparameters using a partial area under the
+inverse ROC curve for a true positive rate $\geq 0.95$. Note that the
+ROC curve shows the true positive rate (TPR, correctly classified as
+`Bad`) against the false positive rate (FPR, incorrectly specified as
+`Bad`, i.e. actually `Good`). The `Good` class recall is 1 minus the
+FPR, which is why we consider the area under the inverse ROC curve
+section specifically for the TPR $\geq 0.95$. Since the ROC curve is a
+threshold-free measure, this approach identifies the set of
 hyperparameters, for which the model has a tendency to produce high
 `Good` class recalls in particular for high `Bad` class recall.
+
+In detail, let $R(x)$ be the inverse ROC curve, where $x$ is the input
+TPR and $R(x)$ returns the corresponding FPR. In the first step, we
+maximize $$1-(0.05)^{-1}\int_{0.95}^{1}R(x)\text{d}x,$$ where
+$(0.05)^{-1}\int_{0.95}^{1}R(x)\text{d}x$ gives the average FPR under
+the restriction that the TPR is $\geq 0.95$. $1$ minus this quantity is
+then the average recall for the `Good` class under that same
+restriction.
+
+<div id="fig-roc-example">
+
+![](Pictures/ROC-Example.png)
+
+Figure 5.2: An example of the partical ROC-AUC score implemented.
+
+</div>
+
+<a href="#fig-roc-example" class="quarto-xref">Figure 5.2</a> depicts
+this idea for an example classifier. The average computed for the AUC of
+the inverse ROC curve for $\text{TPR} \geq 0.95$ is approx. 0.87.
+Consequently, the average `Good` class recall under the same restriction
+is about $1-0.87=0.13$ and thus quite low.
 
 Afterwards, we simply tune the threshold of the selected model by doing
 another CV with penalizing `Bad` class recall \< 0.95, with the aim to
@@ -650,6 +673,7 @@ maximize `Good` class recall.
 
 <summary>
 
+Show Python code
 </summary>
 
 ``` python
@@ -716,32 +740,33 @@ good_recall_scorer = make_scorer(good_recall)
 
 ## 5.5 Estimation framework
 
-<a href="#fig-cv-steps" class="quarto-xref">Figure 5.2</a> shows the
+<a href="#fig-cv-steps" class="quarto-xref">Figure 5.3</a> shows the
 training and evaluation framework for most of the classifiers.
 
 <div id="fig-cv-steps">
 
 ![](Pictures/CV%20framework.png)
 
-Figure 5.2: The validation and testing framework.
+Figure 5.3: The validation and testing framework.
 
 </div>
 
 Following the training-test split of 89%-11%, we use 3-fold CV on the
-training set to identify optimal hyperparameters using the ROC-AUC
-criterion. Since ROC-AUC is a criterion independent from probability
-thresholds, it can be considered to select an overall well-rounded
-classifier. In this step, we consider randomized CV in almost all cases
-with selection of 30 instances from the entire parameter grid. Only in
-cases with small hyperparameter grids to begin with, we will implement
-the entire grid search. In a separate step, we use 3-fold CV using our
-own scoring function on the training data using the previously
-identified hyperparameters to ifentify the optimal probability threshold
-for classification. Given the hyperparameters and the threshold, the
-selected model is refitted to the entire training data and evaluated on
-the test data. In addition to the second CV step, we also investigate
-the ROC curve of the selected predictor from the first CV step to see
-different
+training set to identify optimal hyperparameters using the partial
+ROC-AUC criterion. Since the partial ROC-AUC is a criterion independent
+from a specific single probability threshold, it can be considered to
+select a classifier that generally produces a large `Good` class recall
+for $\text{TPR}\geq 0.95$. In this step, we consider randomized CV in
+almost all cases with selection of 30 instances from the entire
+parameter grid. Only in cases with small hyperparameter grids to begin
+with, we will implement the entire grid search. In a separate step, we
+use 3-fold CV using our own scoring function on the training data using
+the previously identified hyperparameters to ifentify the optimal
+probability threshold for classification. Given the hyperparameters and
+the threshold, the selected model is refitted to the entire training
+data and evaluated on the test data. In addition to the second CV step,
+we also investigate the ROC curve of the selected predictor from the
+first CV step to see different
 
 This two-step procedure benefits from a relatively small computational
 burden that will identify a reliable class predictor in a small amount
@@ -751,14 +776,45 @@ optimal threshold would be identified on an inner CV loop. Since such an
 idea is time consuming for larger hyperparameter grids and complex
 models, we ignore this idea in this project.
 
+## 5.6 Pipeline
+
+<div id="fig-pipeline-illu">
+
+<img src="Pictures/Pipeline%20illustration.png"
+style="width:60.0%;height:60.0%" />
+
+Figure 5.4: The main model pipeline.
+
+</div>
+
+The main model pipeline looks as illustrated in
+<a href="#fig-pipeline-illu" class="quarto-xref">Figure 5.4</a>.
+Initially, the cleaned texts are split into tokens, namely either only
+unigrams or both unigrams and bigrams. The decision is left to CV.
+
+Afterwards, the tokens are optionally transformed by a TF-IDF
+tranformer. Again, the choice whether or not to apply this
+transformation is left for CV.
+
+In case of some models, which do not natively support class weighting,
+we allow for oversampling, where random draws from the minority class
+training observations are randomly replicated. Various levels of
+relation between the two classes are checked through CV. Note that in
+the pipeline, this is only applied when training data. This step is
+automatically skipped when applied to test data.
+
+Ultimately, the result from the previous transformations is plugged into
+the model function. Hyperparameters are identified through CV. The
+threshold, as explained before, is obtained through a second CV step.
+Fitting pipeline and making predictions leads to the output.
+
 # 6 Analysis
 
-Throughout the analysis, we derive numerical features from 1-grams of
-the cleaned review texts, i.e. variables taken from individual words.
-This keeps the feature engineering simple enough, avoids high
-dimensionality in the feature space and reduces computation times. More
-in-depth approaches not considered here may also include 2-grams or
-3-grams, and thus variables derived from chains of multiple words.
+Throughout the analysis, we derive numerical features from unigrams or
+both uni- and bigrams of the cleaned review texts, i.e. variables taken
+from individual words or chains of two consecutive words. This keeps the
+feature engineering simple enough. More in-depth approaches not
+considered here may also include 3-grams or those of even higher orders.
 
 ## 6.1 Baseline prediction
 
@@ -807,9 +863,9 @@ penalty term (`C`), the class weights (`class_weight`), and the form of
 regularization (`l1_ratio`). Additionally, we include different forms of
 token transformation in the tuning process. This way, we decide, whether
 or not to only use unigrams or both uni- and bigrams of words, and
-whther or not to do a tf-idf transformation of the word frequencies.
+whther or not to do a TF-IDF transformation of the word frequencies.
 Ultimately, `C = 10`, `class_weight = 'balanced'`, `l1_ratio = 0.5`,
-`ngram_range': (1, 2)}`, and a tf-idf transformation with sublinear text
+`ngram_range': (1, 2)}`, and a TF-IDF transformation with sublinear text
 frequency are selected. For this first tuning, we consider the area
 under the inverse ROC curve for recall $\geq 0.95$. This way, the
 hyperparameters are selected to work particularly well in a high-recall
@@ -1302,7 +1358,7 @@ print(classification_report(y_test, lgbm_pred))
        macro avg       0.83      0.86      0.84      1066
     weighted avg       0.94      0.94      0.94      1066
 
-## 6.7 Model comparison
+## 6.6 Model comparison
 
 <details>
 
@@ -1371,114 +1427,74 @@ for i in reports.keys():
     wa_f1.append(reports[i]['weighted avg']['f1-score'])  
 
 table_df = pd.DataFrame({
-    'bad_precision': bad_precision,
-    'bad_recall': bad_recall,
-    'bad_f1': bad_f1,
-    'good_precision': good_precision,
-    'good_recall': good_recall,
-    'good_f1': good_f1,
-    'accuracy': accuracy,
-    'ma_precision': ma_precision,
-    'ma_recall': ma_recall,
-    'ma_f1': ma_f1,
-    'wa_precision': wa_precision,
-    'wa_recall': wa_recall,
-    'wa_f1': wa_f1
+    'Precision (Bad)': bad_precision,
+    'Recall (Bad)': bad_recall,
+    'F1 (Bad)': bad_f1,
+    'Precision (Good)': good_precision,
+    'Recall (Good)': good_recall,
+    'F1 (Good)': good_f1,
+    'Accuracy': accuracy,
+    'Ave. precision': ma_precision,
+    'Ave. recall': ma_recall,
+    'Ave. F1': ma_f1,
+    'Weighted precision': wa_precision,
+    'Weighted recall': wa_recall,
+    'Weighted F1': wa_f1
 }, index = reports.keys())
 table_df = table_df.round(2)
+table_df = table_df.reset_index(names = 'Model')
+table_df['Model'] = [
+    'Baseline',
+    'Logit',
+    'Naive Bayes',
+    'Random forest',
+    'Gradient boosting',
+    'LightGBM'
+]
 
-from great_tables import GT
-(
-    GT(table_df.reset_index(names = 'Model'))
-)
+print(table_df.to_markdown(index = False, floatfmt = ".2f"))
 ```
-
-<div id="tbl-summary">
-
-Table 6.1: Summary of model performance.
-
-<div class="cell-output cell-output-display" data-execution_count="66">
-
-<div id="ovhfhkivgp" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
-<style>
-#ovhfhkivgp table {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', 'Fira Sans', 'Droid Sans', Arial, sans-serif;
-          -webkit-font-smoothing: antialiased;
-          -moz-osx-font-smoothing: grayscale;
-        }
-&#10;#ovhfhkivgp thead, tbody, tfoot, tr, td, th { border-style: none; }
- tr { background-color: transparent; }
-#ovhfhkivgp p { margin: 0; padding: 0; }
- #ovhfhkivgp .gt_table { display: table; border-collapse: collapse; line-height: normal; margin-left: auto; margin-right: auto; color: #333333; font-size: 16px; font-weight: normal; font-style: normal; background-color: #FFFFFF; width: auto; border-top-style: solid; border-top-width: 2px; border-top-color: #A8A8A8; border-right-style: none; border-right-width: 2px; border-right-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #A8A8A8; border-left-style: none; border-left-width: 2px; border-left-color: #D3D3D3; }
- #ovhfhkivgp .gt_caption { padding-top: 4px; padding-bottom: 4px; }
- #ovhfhkivgp .gt_title { color: #333333; font-size: 125%; font-weight: initial; padding-top: 4px; padding-bottom: 4px; padding-left: 5px; padding-right: 5px; border-bottom-color: #FFFFFF; border-bottom-width: 0; }
- #ovhfhkivgp .gt_subtitle { color: #333333; font-size: 85%; font-weight: initial; padding-top: 3px; padding-bottom: 5px; padding-left: 5px; padding-right: 5px; border-top-color: #FFFFFF; border-top-width: 0; }
- #ovhfhkivgp .gt_heading { background-color: #FFFFFF; text-align: center; border-bottom-color: #FFFFFF; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; }
- #ovhfhkivgp .gt_bottom_border { border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; }
- #ovhfhkivgp .gt_col_headings { border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; }
- #ovhfhkivgp .gt_col_heading { color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: normal; text-transform: inherit; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: bottom; padding-top: 5px; padding-bottom: 5px; padding-left: 5px; padding-right: 5px; overflow-x: hidden; }
- #ovhfhkivgp .gt_column_spanner_outer { color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: normal; text-transform: inherit; padding-top: 0; padding-bottom: 0; padding-left: 4px; padding-right: 4px; }
- #ovhfhkivgp .gt_column_spanner_outer:first-child { padding-left: 0; }
- #ovhfhkivgp .gt_column_spanner_outer:last-child { padding-right: 0; }
- #ovhfhkivgp .gt_column_spanner { border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; vertical-align: bottom; padding-top: 5px; padding-bottom: 5px; overflow-x: hidden; display: inline-block; width: 100%; }
- #ovhfhkivgp .gt_spanner_row { border-bottom-style: hidden; }
- #ovhfhkivgp .gt_group_heading { padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: initial; text-transform: inherit; border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; text-align: left; }
- #ovhfhkivgp .gt_empty_group_heading { padding: 0.5px; color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: initial; border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; vertical-align: middle; }
- #ovhfhkivgp .gt_from_md> :first-child { margin-top: 0; }
- #ovhfhkivgp .gt_from_md> :last-child { margin-bottom: 0; }
- #ovhfhkivgp .gt_row { padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; }
- #ovhfhkivgp .gt_stub { color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: initial; text-transform: inherit; border-right-style: solid; border-right-width: 2px; border-right-color: #D3D3D3; padding-left: 5px; padding-right: 5px; }
- #ovhfhkivgp .gt_indent_1 { text-indent: 5px; }
- #ovhfhkivgp .gt_indent_2 { text-indent: calc(5px * 2); }
- #ovhfhkivgp .gt_indent_3 { text-indent: calc(5px * 3); }
- #ovhfhkivgp .gt_indent_4 { text-indent: calc(5px * 4); }
- #ovhfhkivgp .gt_indent_5 { text-indent: calc(5px * 5); }
- #ovhfhkivgp .gt_stub_row_group { color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: initial; text-transform: inherit; border-right-style: solid; border-right-width: 2px; border-right-color: #D3D3D3; padding-left: 5px; padding-right: 5px; vertical-align: top; }
- #ovhfhkivgp .gt_row_group_first td { border-top-width: 2px; }
- #ovhfhkivgp .gt_row_group_first th { border-top-width: 2px; }
- #ovhfhkivgp .gt_striped { color: #333333; background-color: #F4F4F4; }
- #ovhfhkivgp .gt_table_body { border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; }
- #ovhfhkivgp .gt_summary_row { color: #333333; background-color: #FFFFFF; text-transform: inherit; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; }
- #ovhfhkivgp .gt_first_summary_row { border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; }
- #ovhfhkivgp .gt_last_summary_row_top { border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; }
- #ovhfhkivgp .gt_grand_summary_row { color: #333333; background-color: #FFFFFF; text-transform: inherit; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; }
- #ovhfhkivgp .gt_first_grand_summary_row_bottom { border-top-style: double; border-top-width: 6px; border-top-color: #D3D3D3; }
- #ovhfhkivgp .gt_last_grand_summary_row_top { border-bottom-style: double; border-bottom-width: 6px; border-bottom-color: #D3D3D3; }
- #ovhfhkivgp .gt_sourcenotes { color: #333333; background-color: #FFFFFF; border-bottom-style: none; border-bottom-width: 2px; border-bottom-color: #D3D3D3; border-left-style: none; border-left-width: 2px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 2px; border-right-color: #D3D3D3; }
- #ovhfhkivgp .gt_sourcenote { font-size: 90%; padding-top: 4px; padding-bottom: 4px; padding-left: 5px; padding-right: 5px; text-align: left; }
- #ovhfhkivgp .gt_left { text-align: left; }
- #ovhfhkivgp .gt_center { text-align: center; }
- #ovhfhkivgp .gt_right { text-align: right; font-variant-numeric: tabular-nums; }
- #ovhfhkivgp .gt_font_normal { font-weight: normal; }
- #ovhfhkivgp .gt_font_bold { font-weight: bold; }
- #ovhfhkivgp .gt_font_italic { font-style: italic; }
- #ovhfhkivgp .gt_super { font-size: 65%; }
- #ovhfhkivgp .gt_footnotes { color: font-color(#FFFFFF); background-color: #FFFFFF; border-bottom-style: none; border-bottom-width: 2px; border-bottom-color: #D3D3D3; border-left-style: none; border-left-width: 2px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 2px; border-right-color: #D3D3D3; }
- #ovhfhkivgp .gt_footnote { margin: 0px; font-size: 90%; padding-top: 4px; padding-bottom: 4px; padding-left: 5px; padding-right: 5px; }
- #ovhfhkivgp .gt_sourcenotes { color: #333333; background-color: #FFFFFF; border-bottom-style: none; border-bottom-width: 2px; border-bottom-color: #D3D3D3; border-left-style: none; border-left-width: 2px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 2px; border-right-color: #D3D3D3; }
- #ovhfhkivgp .gt_sourcenote { font-size: 90%; padding-top: 4px; padding-bottom: 4px; padding-left: 5px; padding-right: 5px; text-align: left; }
- #ovhfhkivgp .gt_footnote_marks { font-size: 75%; vertical-align: 0.4em; position: initial; }
- #ovhfhkivgp .gt_asterisk { font-size: 100%; vertical-align: 0; }
- &#10;</style>
-
-| Model | bad_precision | bad_recall | bad_f1 | good_precision | good_recall | good_f1 | accuracy | ma_precision | ma_recall | ma_f1 | wa_precision | wa_recall | wa_f1 |
-|----|----|----|----|----|----|----|----|----|----|----|----|----|----|
-| base | 0.89 | 1.0 | 0.94 | 0.0 | 0.0 | 0.0 | 0.89 | 0.45 | 0.5 | 0.47 | 0.8 | 0.89 | 0.85 |
-| logit | 0.98 | 0.96 | 0.97 | 0.69 | 0.82 | 0.75 | 0.94 | 0.83 | 0.89 | 0.86 | 0.95 | 0.94 | 0.94 |
-| nbayes | 0.93 | 0.99 | 0.96 | 0.78 | 0.4 | 0.53 | 0.92 | 0.85 | 0.69 | 0.74 | 0.92 | 0.92 | 0.91 |
-| rf | 0.97 | 0.95 | 0.96 | 0.65 | 0.73 | 0.69 | 0.93 | 0.81 | 0.84 | 0.82 | 0.93 | 0.93 | 0.93 |
-| boost | 0.98 | 0.95 | 0.96 | 0.64 | 0.8 | 0.71 | 0.93 | 0.81 | 0.88 | 0.84 | 0.94 | 0.93 | 0.93 |
-| lgbm | 0.97 | 0.96 | 0.96 | 0.68 | 0.76 | 0.72 | 0.94 | 0.83 | 0.86 | 0.84 | 0.94 | 0.94 | 0.94 |
-
-&#10;</div>
-
-</div>
-
-</div>
 
 </details>
 
-## 6.8 Feature importance
+<div id="tbl-summary">
+
+Table 6.1: Summary of model performance on the test set.
+
+| Model | Precision (Bad) | Recall (Bad) | F1 (Bad) | Precision (Good) | Recall (Good) | F1 (Good) | Accuracy | Ave. precision | Ave. recall | Ave. F1 | Weighted precision | Weighted recall | Weighted F1 |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Baseline | 0.89 | 1.00 | 0.94 | 0.00 | 0.00 | 0.00 | 0.89 | 0.45 | 0.50 | 0.47 | 0.80 | 0.89 | 0.85 |
+| Logit | 0.98 | 0.96 | 0.97 | 0.69 | 0.82 | 0.75 | 0.94 | 0.83 | 0.89 | 0.86 | 0.95 | 0.94 | 0.94 |
+| Naive Bayes | 0.93 | 0.99 | 0.96 | 0.78 | 0.40 | 0.53 | 0.92 | 0.85 | 0.69 | 0.74 | 0.92 | 0.92 | 0.91 |
+| Random forest | 0.97 | 0.95 | 0.96 | 0.65 | 0.73 | 0.69 | 0.93 | 0.81 | 0.84 | 0.82 | 0.93 | 0.93 | 0.93 |
+| Gradient boosting | 0.98 | 0.95 | 0.96 | 0.64 | 0.80 | 0.71 | 0.93 | 0.81 | 0.88 | 0.84 | 0.94 | 0.93 | 0.93 |
+| LightGBM | 0.97 | 0.96 | 0.96 | 0.68 | 0.76 | 0.72 | 0.94 | 0.83 | 0.86 | 0.84 | 0.94 | 0.94 | 0.94 |
+
+</div>
+
+<a href="#tbl-summary" class="quarto-xref">Table 6.1</a> summarizes the
+performances of the selected classifiers on the test set in each case.
+All of them achieve, as intended, a `Bad` class recall of at least 0.95.
+Under this restriction, the logistic regression classifier (Logit)
+maximizes the `Good` class recall with a value of 0.82 among the
+investigated models. The gradient boosting approach comes close with
+0.8, and also the random forest and LightGBM classifiers do not perform
+notably worse. Only the naive Bayes predictor achieves only a `Good`
+class recall of 0.4 and is hence clearly worse than the other methods in
+achieving the objective. However, this particular classifier results in
+the largest `Good` class precision.
+
+Since the logit model performs best and is more lightweight than the
+tree-based methods, the logit model should be tried first in practice on
+classifying real messages. Given the test results, we may expect a
+**reduction** in the number of messages to inspect manually **by approx.
+12.2%** at the **cost** of willingly **ignoring about 4% of `Bad`
+messages**.
+
+It has to be noted that all tuned models outperform the baseline
+approach.
+
+## 6.7 Feature importance
 
 Since the regularized logistic regression is selected for this business
 case, we investigate its estimated coefficients more thoroughly.

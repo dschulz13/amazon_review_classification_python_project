@@ -472,11 +472,19 @@ In this specific business context, defining the `Bad` class as the positive clas
 
 Hence, a self-set restriction is to have models that have a `Bad` class recall (on the test set) of at least 0.95. Misclassifying and thus ignoring more than 5% of negative feedback could be damaging to the company's reputation. Under the given condition, the selected model should then maximize the `Good` class recall. Being able to classify `Good` class messages correctly will reduce the number of messages flagged and is therefore the secondary objective.
 
-To arrive at such solutions, a two-step procedure is considered. At first, we tune general hyperparameters using the inverse area under the ROC curve for a true positive rate $\geq 0.95$. Note that the ROC curve shows the true positive rate (correctly classified as `Bad`) against the false positive rate (incorrectly specified as `Bad`, i.e. actually `Good`). The `Good` class recall is 1 minus the false positive rate, which is why we consider the area under the inverse ROC curve section specifically for the true positive rate $\geq 0.95$.  Since the ROC curve is a threshold-free measure, this approach identifies the set of hyperparameters, for which the model has a tendency to produce high `Good` class recalls in particular for high `Bad` class recall.
+To arrive at such solutions, a two-step procedure is considered. At first, we tune general hyperparameters using a partial area under the inverse ROC curve for a true positive rate $\geq 0.95$. Note that the ROC curve shows the true positive rate (TPR, correctly classified as `Bad`) against the false positive rate (FPR, incorrectly specified as `Bad`, i.e. actually `Good`). The `Good` class recall is 1 minus the FPR, which is why we consider the area under the inverse ROC curve section specifically for the TPR $\geq 0.95$.  Since the ROC curve is a threshold-free measure, this approach identifies the set of hyperparameters, for which the model has a tendency to produce high `Good` class recalls in particular for high `Bad` class recall.
+
+In detail, let $R(x)$ be the inverse ROC curve, where $x$ is the input TPR and $R(x)$ returns the corresponding FPR. In the first step, we maximize
+$$1-(0.05)^{-1}\int_{0.95}^{1}R(x)\text{d}x,$$
+where $(0.05)^{-1}\int_{0.95}^{1}R(x)\text{d}x$ gives the average FPR under the restriction that the TPR is $\geq 0.95$. $1$ minus this quantity is then the average recall for the `Good` class under that same restriction.
+
+![An example of the partical ROC-AUC score implemented.](Pictures/ROC-Example.png){#fig-roc-example}
+
+@fig-roc-example depicts this idea for an example classifier. The average computed for the AUC of the inverse ROC curve for $\text{TPR} \geq 0.95$ is approx. 0.87. Consequently, the average `Good` class recall under the same restriction is about $1-0.87=0.13$ and thus quite low.
 
 Afterwards, we simply tune the threshold of the selected model by doing another CV with penalizing `Bad` class recall < 0.95, with the aim to maximize `Good` class recall.
 
-<details><summary></summary>
+<details><summary>Show Python code</summary>
 
 ```{python}
 # Custom scorers
@@ -546,15 +554,26 @@ good_recall_scorer = make_scorer(good_recall)
 
 ![The validation and testing framework.](Pictures/CV framework.png){#fig-cv-steps}
 
-Following the training-test split of 89%-11%, we use 3-fold CV on the training set to identify optimal hyperparameters using the ROC-AUC criterion. Since ROC-AUC is a criterion independent from probability thresholds, it can be considered to select an overall well-rounded classifier. In this step, we consider randomized CV in almost all cases with selection of 30 instances from the entire parameter grid. Only in cases with small hyperparameter grids to begin with, we will implement the entire grid search. In a separate step, we use 3-fold CV using our own scoring function on the training data using the previously identified hyperparameters to ifentify the optimal probability threshold for classification. Given the hyperparameters and the threshold, the selected model is refitted to the entire training data and evaluated on the test data. In addition to the second CV step, we also investigate the ROC curve of the selected predictor from the first CV step to see different 
+Following the training-test split of 89%-11%, we use 3-fold CV on the training set to identify optimal hyperparameters using the partial ROC-AUC criterion. Since the partial ROC-AUC is a criterion independent from a specific single probability threshold, it can be considered to select a classifier that generally produces a large `Good` class recall for $\text{TPR}\geq 0.95$. In this step, we consider randomized CV in almost all cases with selection of 30 instances from the entire parameter grid. Only in cases with small hyperparameter grids to begin with, we will implement the entire grid search. In a separate step, we use 3-fold CV using our own scoring function on the training data using the previously identified hyperparameters to ifentify the optimal probability threshold for classification. Given the hyperparameters and the threshold, the selected model is refitted to the entire training data and evaluated on the test data. In addition to the second CV step, we also investigate the ROC curve of the selected predictor from the first CV step to see different 
 
 This two-step procedure benefits from a relatively small computational burden that will identify a reliable class predictor in a small amount of time. A mathematically more elaborate approach would involve nested CV, where for each setting of hyperparameters in the  outer CV loop, an optimal threshold would be identified on an inner CV loop. Since such an idea is time consuming for larger hyperparameter grids and complex models, we ignore this idea in this project.
 
+## 5.6 Pipeline
+
+![The main model pipeline.](Pictures/Pipeline illustration.png){#fig-pipeline-illu height=60% width=60%}
+
+The main model pipeline looks as illustrated in @fig-pipeline-illu. Initially, the cleaned texts are split into tokens, namely either only unigrams or both unigrams and bigrams. The decision is left to CV.
+
+Afterwards, the tokens are optionally transformed by a TF-IDF tranformer. Again, the choice whether or not to apply this transformation is left for CV.
+
+In case of some models, which do not natively support class weighting, we allow for oversampling, where random draws from the minority class training observations are randomly replicated. Various levels of relation between the two classes are checked through CV. Note that in the pipeline, this is only applied when training data. This step is automatically skipped when applied to test data.
+
+Ultimately, the result from the previous transformations is plugged into the model function. Hyperparameters are identified through CV. The threshold, as explained before, is obtained through a second CV step. Fitting pipeline and making predictions leads to the output.
+
 # 6 Analysis
 
-Throughout the analysis, we derive numerical features from 1-grams of the cleaned review texts, i.e. variables taken from individual words. This keeps the feature engineering simple enough, avoids high dimensionality in the feature space and reduces computation times. More in-depth approaches not considered here may also include 2-grams or 3-grams, and thus variables derived from chains of multiple words.
+Throughout the analysis, we derive numerical features from unigrams or both uni- and bigrams of the cleaned review texts, i.e. variables taken from individual words or chains of two consecutive words. This keeps the feature engineering simple enough. More in-depth approaches not considered here may also include 3-grams or those of even higher orders.
 
- 
 
 ## 6.1 Baseline prediction
 
@@ -586,7 +605,7 @@ print(classification_report(y_test, pred_baseline,
 
 ## 6.2 Logistic regression
 
-As a first, more elaborate approach, a fine-tuned regularized logistic regression is implemented. In the outer cross-validation, we tune the penalty term (`C`), the class weights (`class_weight`), and the form of regularization (`l1_ratio`). Additionally, we include different forms of token transformation in the tuning process. This way, we decide, whether or not to only use unigrams or both uni- and bigrams of words, and whther or not to do a tf-idf transformation of the word frequencies. Ultimately, `C = 10`, `class_weight = 'balanced'`, `l1_ratio = 0.5`,  `ngram_range': (1, 2)}`, and a tf-idf transformation with sublinear text frequency are selected. For this first tuning, we consider the area under the inverse ROC curve for recall $\geq 0.95$. This way, the hyperparameters are selected to work particularly well in a high-recall setting while still allowing for some flexibility in the subsequent threshold selection. Hence with these hyperparameters, a second CV is done on the training sample, where the probability threshold is selected following the recall on the `Good` class. Here, we penalize cases, where the `Bad` class recall drops below 0.95. This way, we select the threshold (given the hyperparameters), for which the `Good` class is maximized under the condition that the `Bad` class recall is not below 0.95.
+As a first, more elaborate approach, a fine-tuned regularized logistic regression is implemented. In the outer cross-validation, we tune the penalty term (`C`), the class weights (`class_weight`), and the form of regularization (`l1_ratio`). Additionally, we include different forms of token transformation in the tuning process. This way, we decide, whether or not to only use unigrams or both uni- and bigrams of words, and whther or not to do a TF-IDF transformation of the word frequencies. Ultimately, `C = 10`, `class_weight = 'balanced'`, `l1_ratio = 0.5`,  `ngram_range': (1, 2)}`, and a TF-IDF transformation with sublinear text frequency are selected. For this first tuning, we consider the area under the inverse ROC curve for recall $\geq 0.95$. This way, the hyperparameters are selected to work particularly well in a high-recall setting while still allowing for some flexibility in the subsequent threshold selection. Hence with these hyperparameters, a second CV is done on the training sample, where the probability threshold is selected following the recall on the `Good` class. Here, we penalize cases, where the `Bad` class recall drops below 0.95. This way, we select the threshold (given the hyperparameters), for which the `Good` class is maximized under the condition that the `Bad` class recall is not below 0.95.
 
 <details><summary>Show Python code</summary>
 
@@ -1070,13 +1089,13 @@ lgbm_report = classification_report(y_test, lgbm_pred)
 print(lgbm_report)
 ```
 
-## 6.7 Model comparison
+## 6.6 Model comparison
 
 <details><summary>Show Python code</summary>
 
 ```{python}
-#| label: tbl-summary
-#| tbl-cap: "Summary of model performance."
+#| echo: True
+#| eval: False
 
 filenames = [
     'logit_pred.npy',
@@ -1137,31 +1156,137 @@ for i in reports.keys():
     wa_f1.append(reports[i]['weighted avg']['f1-score'])  
 
 table_df = pd.DataFrame({
-    'bad_precision': bad_precision,
-    'bad_recall': bad_recall,
-    'bad_f1': bad_f1,
-    'good_precision': good_precision,
-    'good_recall': good_recall,
-    'good_f1': good_f1,
-    'accuracy': accuracy,
-    'ma_precision': ma_precision,
-    'ma_recall': ma_recall,
-    'ma_f1': ma_f1,
-    'wa_precision': wa_precision,
-    'wa_recall': wa_recall,
-    'wa_f1': wa_f1
+    'Precision (Bad)': bad_precision,
+    'Recall (Bad)': bad_recall,
+    'F1 (Bad)': bad_f1,
+    'Precision (Good)': good_precision,
+    'Recall (Good)': good_recall,
+    'F1 (Good)': good_f1,
+    'Accuracy': accuracy,
+    'Ave. precision': ma_precision,
+    'Ave. recall': ma_recall,
+    'Ave. F1': ma_f1,
+    'Weighted precision': wa_precision,
+    'Weighted recall': wa_recall,
+    'Weighted F1': wa_f1
 }, index = reports.keys())
 table_df = table_df.round(2)
+table_df = table_df.reset_index(names = 'Model')
+table_df['Model'] = [
+    'Baseline',
+    'Logit',
+    'Naive Bayes',
+    'Random forest',
+    'Gradient boosting',
+    'LightGBM'
+]
 
-from great_tables import GT
-(
-    GT(table_df.reset_index(names = 'Model'))
-)
+print(table_df.to_markdown(index = False, floatfmt = ".2f"))
 ```
 
 </details>
 
-## 6.8 Feature importance
+```{python}
+#| label: tbl-summary
+#| tbl-cap: "Summary of model performance on the test set."
+#| output: 'asis'
+#| eval: True
+#| echo: False
+
+filenames = [
+    'logit_pred.npy',
+    'nbayes_pred.npy',
+    'rf_pred.npy',
+    'boost_pred.npy',
+    'lgbm_pred.npy'
+]
+
+preds = list()
+
+for i in range(0, len(filenames) + 1):
+    if i == 0:
+        preds.append(np.array(['Bad'] * len(y_test), dtype = '<U4'))
+        continue
+    preds.append(np.load('Test predictions/' + filenames[i - 1]))
+
+
+keys = ['base', 'logit', 'nbayes', 'rf', 'boost', 'lgbm']
+
+preds = dict(zip(keys, preds))
+
+reports = list()
+for i in preds.keys():
+    reports.append(classification_report(y_test, preds[i], output_dict = True, zero_division = 0.0))
+
+reports = dict(zip(preds.keys(), reports))
+del(preds)
+gc.collect()
+
+bad_precision = list()
+good_precision = list()
+bad_recall = list()
+good_recall = list()
+accuracy = list()
+bad_f1 = list()
+good_f1 = list()
+ma_precision = list()
+ma_recall = list()
+ma_f1 = list()
+wa_precision = list()
+wa_recall = list()
+wa_f1 = list()
+
+for i in reports.keys():
+    bad_precision.append(reports[i]['Bad']['precision'])
+    good_precision.append(reports[i]['Good']['precision'])
+    bad_recall.append(reports[i]['Bad']['recall'])
+    good_recall.append(reports[i]['Good']['recall'])
+    accuracy.append(reports[i]['accuracy'])        
+    bad_f1.append(reports[i]['Bad']['f1-score'])
+    good_f1.append(reports[i]['Good']['f1-score']) 
+    ma_precision.append(reports[i]['macro avg']['precision'])
+    ma_recall.append(reports[i]['macro avg']['recall']) 
+    ma_f1.append(reports[i]['macro avg']['f1-score'])         
+    wa_precision.append(reports[i]['weighted avg']['precision'])
+    wa_recall.append(reports[i]['weighted avg']['recall']) 
+    wa_f1.append(reports[i]['weighted avg']['f1-score'])  
+
+table_df = pd.DataFrame({
+    'Precision (Bad)': bad_precision,
+    'Recall (Bad)': bad_recall,
+    'F1 (Bad)': bad_f1,
+    'Precision (Good)': good_precision,
+    'Recall (Good)': good_recall,
+    'F1 (Good)': good_f1,
+    'Accuracy': accuracy,
+    'Ave. precision': ma_precision,
+    'Ave. recall': ma_recall,
+    'Ave. F1': ma_f1,
+    'Weighted precision': wa_precision,
+    'Weighted recall': wa_recall,
+    'Weighted F1': wa_f1
+}, index = reports.keys())
+table_df = table_df.round(2)
+table_df = table_df.reset_index(names = 'Model')
+table_df['Model'] = [
+    'Baseline',
+    'Logit',
+    'Naive Bayes',
+    'Random forest',
+    'Gradient boosting',
+    'LightGBM'
+]
+
+print(table_df.to_markdown(index = False, floatfmt = ".2f"))
+```
+
+@tbl-summary summarizes the performances of the selected classifiers on the test set in each case. All of them achieve, as intended, a `Bad` class recall of at least 0.95. Under this restriction, the logistic regression classifier (Logit) maximizes the `Good` class recall with a value of 0.82 among the investigated models. The gradient boosting approach comes close with 0.8, and also the random forest and LightGBM classifiers do not perform notably worse. Only the naive Bayes predictor achieves only a `Good` class recall of 0.4 and is hence clearly worse than the other methods in achieving the objective. However, this particular classifier results in the largest `Good` class precision.
+
+Since the logit model performs best and is more lightweight than the tree-based methods, the logit model should be tried first in practice on classifying real messages. Given the test results, we may expect a **reduction** in the number of messages to inspect manually **by approx. 12.2%** at the **cost** of willingly **ignoring about 4% of `Bad` messages**.
+
+It has to be noted that all tuned models outperform the baseline approach.
+
+## 6.7 Feature importance
 
 Since the regularized logistic regression is selected for this business case, we investigate its estimated coefficients more thoroughly.
 
