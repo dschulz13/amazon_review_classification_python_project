@@ -1069,3 +1069,174 @@ lgbm_pred = np.load('Test predictions/lgbm_pred.npy')
 lgbm_report = classification_report(y_test, lgbm_pred)
 print(lgbm_report)
 ```
+
+## 6.7 Model comparison
+
+<details><summary>Show Python code</summary>
+
+```{python}
+#| label: tbl-summary
+#| tbl-cap: "Summary of model performance."
+
+filenames = [
+    'logit_pred.npy',
+    'nbayes_pred.npy',
+    'rf_pred.npy',
+    'boost_pred.npy',
+    'lgbm_pred.npy'
+]
+
+preds = list()
+
+for i in range(0, len(filenames) + 1):
+    if i == 0:
+        preds.append(np.array(['Bad'] * len(y_test), dtype = '<U4'))
+        continue
+    preds.append(np.load('Test predictions/' + filenames[i - 1]))
+
+
+keys = ['base', 'logit', 'nbayes', 'rf', 'boost', 'lgbm']
+
+preds = dict(zip(keys, preds))
+
+reports = list()
+for i in preds.keys():
+    reports.append(classification_report(y_test, preds[i], output_dict = True, zero_division = 0.0))
+
+reports = dict(zip(preds.keys(), reports))
+del(preds)
+gc.collect()
+
+bad_precision = list()
+good_precision = list()
+bad_recall = list()
+good_recall = list()
+accuracy = list()
+bad_f1 = list()
+good_f1 = list()
+ma_precision = list()
+ma_recall = list()
+ma_f1 = list()
+wa_precision = list()
+wa_recall = list()
+wa_f1 = list()
+
+for i in reports.keys():
+    bad_precision.append(reports[i]['Bad']['precision'])
+    good_precision.append(reports[i]['Good']['precision'])
+    bad_recall.append(reports[i]['Bad']['recall'])
+    good_recall.append(reports[i]['Good']['recall'])
+    accuracy.append(reports[i]['accuracy'])        
+    bad_f1.append(reports[i]['Bad']['f1-score'])
+    good_f1.append(reports[i]['Good']['f1-score']) 
+    ma_precision.append(reports[i]['macro avg']['precision'])
+    ma_recall.append(reports[i]['macro avg']['recall']) 
+    ma_f1.append(reports[i]['macro avg']['f1-score'])         
+    wa_precision.append(reports[i]['weighted avg']['precision'])
+    wa_recall.append(reports[i]['weighted avg']['recall']) 
+    wa_f1.append(reports[i]['weighted avg']['f1-score'])  
+
+table_df = pd.DataFrame({
+    'bad_precision': bad_precision,
+    'bad_recall': bad_recall,
+    'bad_f1': bad_f1,
+    'good_precision': good_precision,
+    'good_recall': good_recall,
+    'good_f1': good_f1,
+    'accuracy': accuracy,
+    'ma_precision': ma_precision,
+    'ma_recall': ma_recall,
+    'ma_f1': ma_f1,
+    'wa_precision': wa_precision,
+    'wa_recall': wa_recall,
+    'wa_f1': wa_f1
+}, index = reports.keys())
+table_df = table_df.round(2)
+
+from great_tables import GT
+(
+    GT(table_df.reset_index(names = 'Model'))
+)
+```
+
+</details>
+
+## 6.8 Feature importance
+
+Since the regularized logistic regression is selected for this business case, we investigate its estimated coefficients more thoroughly.
+
+<details><summary>Show Python code</summary>
+
+```{python}
+#| echo: True
+#| eval: False
+
+logit_coef = logit_tuned.estimator_.named_steps['model'].coef_.flatten()
+feature_names = logit_tuned.estimator_.named_steps['dtm'].get_feature_names_out()
+
+logit_coef_sort = logit_coef.argsort()
+
+idx_small = logit_coef_sort[0:50]
+
+feature_coef_small = logit_coef[idx_small]
+feature_name_small = feature_names[idx_small]
+
+coef_df = pd.DataFrame({
+    'Feature name': feature_name_small,
+    'Coefficient value': np.abs(feature_coef_small)
+})
+fig, ax = plt.subplots(figsize = (6, 4))
+coef_df.plot(kind = 'bar', x = 'Feature name', y = 'Coefficient value', ax = ax,
+    legend = False, color = 'lightblue', alpha = 1, edgecolor = 'black', width = 0.6)
+ax.set_xlabel('Token');
+ax.set_ylabel('Coefficient size');
+ax.set_title('The 50 features with the largest negative coefficients');
+ax.grid(axis = 'y');
+ax.set_axisbelow(True);
+```
+
+</details>
+
+```{python}
+#| echo: False
+#| eval: True
+#| label: fig-feat-imp
+#| fig-align: 'center'
+#| fig-cap: 'The tokens related to the 50 features with the largest negative coefficients in the logistic regression model.'
+
+logit_tuned = pickle.load(open('Predictor models/logit_tuned.bin', 'rb'))
+
+logit_coef = logit_tuned.estimator_.named_steps['model'].coef_.flatten()
+feature_names = logit_tuned.estimator_.named_steps['dtm'].get_feature_names_out()
+
+logit_coef_sort = logit_coef.argsort()
+
+idx_small = logit_coef_sort[0:50]
+
+feature_coef_small = logit_coef[idx_small]
+feature_name_small = feature_names[idx_small]
+
+coef_df = pd.DataFrame({
+    'Feature name': feature_name_small,
+    'Coefficient value': np.abs(feature_coef_small)
+})
+fig, ax = plt.subplots(figsize = (10, 4))
+coef_df.plot(kind = 'bar', x = 'Feature name', y = 'Coefficient value', ax = ax,
+    legend = False, color = 'lightblue', alpha = 1, edgecolor = 'black', width = 0.6)
+ax.set_xlabel('Token');
+ax.set_ylabel('Coefficient size');
+ax.set_title('The 50 features with the largest negative coefficients');
+ax.grid(axis = 'y');
+ax.set_axisbelow(True);
+ax.set_xticklabels(ax.get_xticklabels(), rotation = 45, ha = 'right');
+```
+
+@fig-feat-imp shows the tokens of the selected predictor with the largest negative coefficients. Since the model uses a TF-IDF transformation, the features are all scaled between 0.0 and 1.0, which makes the coefficient estimates comparable. While they do not reflect causality, the ones shown in @fig-feat-imp are the strongest predictors of the `Bad` class and hence give an indication about the causes for customers being dissatisfied.
+
+The strongest predictor is associated with the token `cancel`, which could indicate either a dissatisfaction due to the order being cancelled by the vendor or that the customer was so dissatisfied with the service that they cancelled.
+
+Tokens such as `pay`, `paid`, and `charg` indicate problems with payment, while `delay`, `slower`, `slower`, and `alway late` suggest issues with delivery times. `useless`, `rubbish`, `instead`, `cheap`, and `break` may point to issues with wrong item delivery or the quality of products. `lie` and `promis` may suggest dissatisfaction with customer service directly due to being promised a solution for an issue and the customers feeling lied to.
+
+Amazon should therefore investigate the main reasons for dissatisfaction more clearly. We suggest monitoring delivery times in order to find bottlenecks and reasons for them. Furthermore, Amazon should should enforce product quality control among its external vendors and for its own products. Moreover, the current training of customer service should be revised. 
+
+Most importantly, it should be investigates, why cancellations happen. If customers cancel, the reasons should be investigated. If vendors cancel frequently, partnership with them should be called into question.

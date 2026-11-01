@@ -474,3 +474,34 @@ pickle.dump(lgbm_tuned, open('Predictor models/lgbm_tuned.bin', 'wb'))
 lgbm_pred = lgbm_tuned.predict(X_test)
 np.save('Test predictions/lgbm_pred.npy', lgbm_pred)
 print(classification_report(y_test, lgbm_pred))
+
+### Investigation of tokens with the strongest negative predictive impact ###
+
+# Note: The best-performing model is the regularized logistic regression.
+#       Therefore, the following uses that models results.
+
+import matplotlib.pyplot as plt
+
+logit_coef = logit_tuned.estimator_.named_steps['model'].coef_.flatten()
+feature_names = logit_tuned.estimator_.named_steps['dtm'].get_feature_names_out()
+
+logit_coef_sort = logit_coef.argsort()
+
+idx_small = logit_coef_sort[0:50]
+
+feature_coef_small = logit_coef[idx_small]
+feature_name_small = feature_names[idx_small]
+
+coef_df = pd.DataFrame({
+    'Feature name': feature_name_small,
+    'Coefficient value': np.abs(feature_coef_small)
+})
+fig, ax = plt.subplots(figsize = (6, 4))
+coef_df.plot(kind = 'bar', x = 'Feature name', y = 'Coefficient value', ax = ax,
+    legend = False, color = 'lightblue', alpha = 1, edgecolor = 'black', width = 0.6)
+ax.set_xlabel('Token');
+ax.set_ylabel('Coefficient size');
+ax.set_title('The 50 features with the largest negative coefficients');
+ax.grid(axis = 'y');
+ax.set_axisbelow(True);
+

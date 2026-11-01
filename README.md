@@ -1,6 +1,6 @@
 # Identifying Negative Customer Experiences Through Text Classification Using Python: A Case Study of Amazon.com Reviews on Trustpilot
 Dominik Schulz
-October 31, 2026
+November 01, 2026
 
 - [1 Executive summary](#1-executive-summary)
 - [2 Data](#2-data)
@@ -19,6 +19,8 @@ October 31, 2026
   - [6.3 Naive Bayes](#63-naive-bayes)
   - [6.4 Random Forest](#64-random-forest)
   - [6.5 Boosted tree methods](#65-boosted-tree-methods)
+  - [6.7 Model comparison](#67-model-comparison)
+  - [6.8 Feature importance](#68-feature-importance)
 
 # 1 Executive summary
 
@@ -100,7 +102,7 @@ from sklearn.feature_extraction.text import TfidfTransformer, CountVectorizer
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, TunedThresholdClassifierCV, StratifiedKFold, train_test_split
 
 ## Model metrics
-from sklearn.metrics import classification_report, make_scorer, confusion_matrix, roc_curve
+from sklearn.metrics import classification_report, make_scorer, roc_curve, recall_score
 
 ## Oversampling
 from imblearn.over_sampling import RandomOverSampler
@@ -1233,7 +1235,7 @@ pipeline = Pipeline([
         dtype = np.float32
     )),
     ('tfidf', TfidfTransformer()),
-    ('model', lgb.LGBMClassifier(random_state = 1))
+    ('model', lgbm.LGBMClassifier(random_state = 1))
 ])
 
 lgbm_params = {
@@ -1299,3 +1301,261 @@ print(classification_report(y_test, lgbm_pred))
         accuracy                           0.94      1066
        macro avg       0.83      0.86      0.84      1066
     weighted avg       0.94      0.94      0.94      1066
+
+## 6.7 Model comparison
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
+``` python
+filenames = [
+    'logit_pred.npy',
+    'nbayes_pred.npy',
+    'rf_pred.npy',
+    'boost_pred.npy',
+    'lgbm_pred.npy'
+]
+
+preds = list()
+
+for i in range(0, len(filenames) + 1):
+    if i == 0:
+        preds.append(np.array(['Bad'] * len(y_test), dtype = '<U4'))
+        continue
+    preds.append(np.load('Test predictions/' + filenames[i - 1]))
+
+
+keys = ['base', 'logit', 'nbayes', 'rf', 'boost', 'lgbm']
+
+preds = dict(zip(keys, preds))
+
+reports = list()
+for i in preds.keys():
+    reports.append(classification_report(y_test, preds[i], output_dict = True, zero_division = 0.0))
+
+reports = dict(zip(preds.keys(), reports))
+del(preds)
+gc.collect()
+
+bad_precision = list()
+good_precision = list()
+bad_recall = list()
+good_recall = list()
+accuracy = list()
+bad_f1 = list()
+good_f1 = list()
+ma_precision = list()
+ma_recall = list()
+ma_f1 = list()
+wa_precision = list()
+wa_recall = list()
+wa_f1 = list()
+
+for i in reports.keys():
+    bad_precision.append(reports[i]['Bad']['precision'])
+    good_precision.append(reports[i]['Good']['precision'])
+    bad_recall.append(reports[i]['Bad']['recall'])
+    good_recall.append(reports[i]['Good']['recall'])
+    accuracy.append(reports[i]['accuracy'])        
+    bad_f1.append(reports[i]['Bad']['f1-score'])
+    good_f1.append(reports[i]['Good']['f1-score']) 
+    ma_precision.append(reports[i]['macro avg']['precision'])
+    ma_recall.append(reports[i]['macro avg']['recall']) 
+    ma_f1.append(reports[i]['macro avg']['f1-score'])         
+    wa_precision.append(reports[i]['weighted avg']['precision'])
+    wa_recall.append(reports[i]['weighted avg']['recall']) 
+    wa_f1.append(reports[i]['weighted avg']['f1-score'])  
+
+table_df = pd.DataFrame({
+    'bad_precision': bad_precision,
+    'bad_recall': bad_recall,
+    'bad_f1': bad_f1,
+    'good_precision': good_precision,
+    'good_recall': good_recall,
+    'good_f1': good_f1,
+    'accuracy': accuracy,
+    'ma_precision': ma_precision,
+    'ma_recall': ma_recall,
+    'ma_f1': ma_f1,
+    'wa_precision': wa_precision,
+    'wa_recall': wa_recall,
+    'wa_f1': wa_f1
+}, index = reports.keys())
+table_df = table_df.round(2)
+
+from great_tables import GT
+(
+    GT(table_df.reset_index(names = 'Model'))
+)
+```
+
+<div id="tbl-summary">
+
+Table 6.1: Summary of model performance.
+
+<div class="cell-output cell-output-display" data-execution_count="66">
+
+<div id="ovhfhkivgp" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>
+#ovhfhkivgp table {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', 'Fira Sans', 'Droid Sans', Arial, sans-serif;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+        }
+&#10;#ovhfhkivgp thead, tbody, tfoot, tr, td, th { border-style: none; }
+ tr { background-color: transparent; }
+#ovhfhkivgp p { margin: 0; padding: 0; }
+ #ovhfhkivgp .gt_table { display: table; border-collapse: collapse; line-height: normal; margin-left: auto; margin-right: auto; color: #333333; font-size: 16px; font-weight: normal; font-style: normal; background-color: #FFFFFF; width: auto; border-top-style: solid; border-top-width: 2px; border-top-color: #A8A8A8; border-right-style: none; border-right-width: 2px; border-right-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #A8A8A8; border-left-style: none; border-left-width: 2px; border-left-color: #D3D3D3; }
+ #ovhfhkivgp .gt_caption { padding-top: 4px; padding-bottom: 4px; }
+ #ovhfhkivgp .gt_title { color: #333333; font-size: 125%; font-weight: initial; padding-top: 4px; padding-bottom: 4px; padding-left: 5px; padding-right: 5px; border-bottom-color: #FFFFFF; border-bottom-width: 0; }
+ #ovhfhkivgp .gt_subtitle { color: #333333; font-size: 85%; font-weight: initial; padding-top: 3px; padding-bottom: 5px; padding-left: 5px; padding-right: 5px; border-top-color: #FFFFFF; border-top-width: 0; }
+ #ovhfhkivgp .gt_heading { background-color: #FFFFFF; text-align: center; border-bottom-color: #FFFFFF; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; }
+ #ovhfhkivgp .gt_bottom_border { border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; }
+ #ovhfhkivgp .gt_col_headings { border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; }
+ #ovhfhkivgp .gt_col_heading { color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: normal; text-transform: inherit; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: bottom; padding-top: 5px; padding-bottom: 5px; padding-left: 5px; padding-right: 5px; overflow-x: hidden; }
+ #ovhfhkivgp .gt_column_spanner_outer { color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: normal; text-transform: inherit; padding-top: 0; padding-bottom: 0; padding-left: 4px; padding-right: 4px; }
+ #ovhfhkivgp .gt_column_spanner_outer:first-child { padding-left: 0; }
+ #ovhfhkivgp .gt_column_spanner_outer:last-child { padding-right: 0; }
+ #ovhfhkivgp .gt_column_spanner { border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; vertical-align: bottom; padding-top: 5px; padding-bottom: 5px; overflow-x: hidden; display: inline-block; width: 100%; }
+ #ovhfhkivgp .gt_spanner_row { border-bottom-style: hidden; }
+ #ovhfhkivgp .gt_group_heading { padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: initial; text-transform: inherit; border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; text-align: left; }
+ #ovhfhkivgp .gt_empty_group_heading { padding: 0.5px; color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: initial; border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; vertical-align: middle; }
+ #ovhfhkivgp .gt_from_md> :first-child { margin-top: 0; }
+ #ovhfhkivgp .gt_from_md> :last-child { margin-bottom: 0; }
+ #ovhfhkivgp .gt_row { padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; }
+ #ovhfhkivgp .gt_stub { color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: initial; text-transform: inherit; border-right-style: solid; border-right-width: 2px; border-right-color: #D3D3D3; padding-left: 5px; padding-right: 5px; }
+ #ovhfhkivgp .gt_indent_1 { text-indent: 5px; }
+ #ovhfhkivgp .gt_indent_2 { text-indent: calc(5px * 2); }
+ #ovhfhkivgp .gt_indent_3 { text-indent: calc(5px * 3); }
+ #ovhfhkivgp .gt_indent_4 { text-indent: calc(5px * 4); }
+ #ovhfhkivgp .gt_indent_5 { text-indent: calc(5px * 5); }
+ #ovhfhkivgp .gt_stub_row_group { color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: initial; text-transform: inherit; border-right-style: solid; border-right-width: 2px; border-right-color: #D3D3D3; padding-left: 5px; padding-right: 5px; vertical-align: top; }
+ #ovhfhkivgp .gt_row_group_first td { border-top-width: 2px; }
+ #ovhfhkivgp .gt_row_group_first th { border-top-width: 2px; }
+ #ovhfhkivgp .gt_striped { color: #333333; background-color: #F4F4F4; }
+ #ovhfhkivgp .gt_table_body { border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; }
+ #ovhfhkivgp .gt_summary_row { color: #333333; background-color: #FFFFFF; text-transform: inherit; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; }
+ #ovhfhkivgp .gt_first_summary_row { border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; }
+ #ovhfhkivgp .gt_last_summary_row_top { border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; }
+ #ovhfhkivgp .gt_grand_summary_row { color: #333333; background-color: #FFFFFF; text-transform: inherit; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; }
+ #ovhfhkivgp .gt_first_grand_summary_row_bottom { border-top-style: double; border-top-width: 6px; border-top-color: #D3D3D3; }
+ #ovhfhkivgp .gt_last_grand_summary_row_top { border-bottom-style: double; border-bottom-width: 6px; border-bottom-color: #D3D3D3; }
+ #ovhfhkivgp .gt_sourcenotes { color: #333333; background-color: #FFFFFF; border-bottom-style: none; border-bottom-width: 2px; border-bottom-color: #D3D3D3; border-left-style: none; border-left-width: 2px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 2px; border-right-color: #D3D3D3; }
+ #ovhfhkivgp .gt_sourcenote { font-size: 90%; padding-top: 4px; padding-bottom: 4px; padding-left: 5px; padding-right: 5px; text-align: left; }
+ #ovhfhkivgp .gt_left { text-align: left; }
+ #ovhfhkivgp .gt_center { text-align: center; }
+ #ovhfhkivgp .gt_right { text-align: right; font-variant-numeric: tabular-nums; }
+ #ovhfhkivgp .gt_font_normal { font-weight: normal; }
+ #ovhfhkivgp .gt_font_bold { font-weight: bold; }
+ #ovhfhkivgp .gt_font_italic { font-style: italic; }
+ #ovhfhkivgp .gt_super { font-size: 65%; }
+ #ovhfhkivgp .gt_footnotes { color: font-color(#FFFFFF); background-color: #FFFFFF; border-bottom-style: none; border-bottom-width: 2px; border-bottom-color: #D3D3D3; border-left-style: none; border-left-width: 2px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 2px; border-right-color: #D3D3D3; }
+ #ovhfhkivgp .gt_footnote { margin: 0px; font-size: 90%; padding-top: 4px; padding-bottom: 4px; padding-left: 5px; padding-right: 5px; }
+ #ovhfhkivgp .gt_sourcenotes { color: #333333; background-color: #FFFFFF; border-bottom-style: none; border-bottom-width: 2px; border-bottom-color: #D3D3D3; border-left-style: none; border-left-width: 2px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 2px; border-right-color: #D3D3D3; }
+ #ovhfhkivgp .gt_sourcenote { font-size: 90%; padding-top: 4px; padding-bottom: 4px; padding-left: 5px; padding-right: 5px; text-align: left; }
+ #ovhfhkivgp .gt_footnote_marks { font-size: 75%; vertical-align: 0.4em; position: initial; }
+ #ovhfhkivgp .gt_asterisk { font-size: 100%; vertical-align: 0; }
+ &#10;</style>
+
+| Model | bad_precision | bad_recall | bad_f1 | good_precision | good_recall | good_f1 | accuracy | ma_precision | ma_recall | ma_f1 | wa_precision | wa_recall | wa_f1 |
+|----|----|----|----|----|----|----|----|----|----|----|----|----|----|
+| base | 0.89 | 1.0 | 0.94 | 0.0 | 0.0 | 0.0 | 0.89 | 0.45 | 0.5 | 0.47 | 0.8 | 0.89 | 0.85 |
+| logit | 0.98 | 0.96 | 0.97 | 0.69 | 0.82 | 0.75 | 0.94 | 0.83 | 0.89 | 0.86 | 0.95 | 0.94 | 0.94 |
+| nbayes | 0.93 | 0.99 | 0.96 | 0.78 | 0.4 | 0.53 | 0.92 | 0.85 | 0.69 | 0.74 | 0.92 | 0.92 | 0.91 |
+| rf | 0.97 | 0.95 | 0.96 | 0.65 | 0.73 | 0.69 | 0.93 | 0.81 | 0.84 | 0.82 | 0.93 | 0.93 | 0.93 |
+| boost | 0.98 | 0.95 | 0.96 | 0.64 | 0.8 | 0.71 | 0.93 | 0.81 | 0.88 | 0.84 | 0.94 | 0.93 | 0.93 |
+| lgbm | 0.97 | 0.96 | 0.96 | 0.68 | 0.76 | 0.72 | 0.94 | 0.83 | 0.86 | 0.84 | 0.94 | 0.94 | 0.94 |
+
+&#10;</div>
+
+</div>
+
+</div>
+
+</details>
+
+## 6.8 Feature importance
+
+Since the regularized logistic regression is selected for this business
+case, we investigate its estimated coefficients more thoroughly.
+
+<details>
+
+<summary>
+
+Show Python code
+</summary>
+
+``` python
+logit_coef = logit_tuned.estimator_.named_steps['model'].coef_.flatten()
+feature_names = logit_tuned.estimator_.named_steps['dtm'].get_feature_names_out()
+
+logit_coef_sort = logit_coef.argsort()
+
+idx_small = logit_coef_sort[0:50]
+
+feature_coef_small = logit_coef[idx_small]
+feature_name_small = feature_names[idx_small]
+
+coef_df = pd.DataFrame({
+    'Feature name': feature_name_small,
+    'Coefficient value': np.abs(feature_coef_small)
+})
+fig, ax = plt.subplots(figsize = (6, 4))
+coef_df.plot(kind = 'bar', x = 'Feature name', y = 'Coefficient value', ax = ax,
+    legend = False, color = 'lightblue', alpha = 1, edgecolor = 'black', width = 0.6)
+ax.set_xlabel('Token');
+ax.set_ylabel('Coefficient size');
+ax.set_title('The 50 features with the largest negative coefficients');
+ax.grid(axis = 'y');
+ax.set_axisbelow(True);
+```
+
+</details>
+
+<div id="fig-feat-imp">
+
+<img src="README_files/figure-commonmark/fig-feat-imp-output-1.png"
+data-fig-align="center" />
+
+Figure 6.1: The tokens related to the 50 features with the largest
+negative coefficients in the logistic regression model.
+
+</div>
+
+<a href="#fig-feat-imp" class="quarto-xref">Figure 6.1</a> shows the
+tokens of the selected predictor with the largest negative coefficients.
+Since the model uses a TF-IDF transformation, the features are all
+scaled between 0.0 and 1.0, which makes the coefficient estimates
+comparable. While they do not reflect causality, the ones shown in
+<a href="#fig-feat-imp" class="quarto-xref">Figure 6.1</a> are the
+strongest predictors of the `Bad` class and hence give an indication
+about the causes for customers being dissatisfied.
+
+The strongest predictor is associated with the token `cancel`, which
+could indicate either a dissatisfaction due to the order being cancelled
+by the vendor or that the customer was so dissatisfied with the service
+that they cancelled.
+
+Tokens such as `pay`, `paid`, and `charg` indicate problems with
+payment, while `delay`, `slower`, `slower`, and `alway late` suggest
+issues with delivery times. `useless`, `rubbish`, `instead`, `cheap`,
+and `break` may point to issues with wrong item delivery or the quality
+of products. `lie` and `promis` may suggest dissatisfaction with
+customer service directly due to being promised a solution for an issue
+and the customers feeling lied to.
+
+Amazon should therefore investigate the main reasons for dissatisfaction
+more clearly. We suggest monitoring delivery times in order to find
+bottlenecks and reasons for them. Furthermore, Amazon should should
+enforce product quality control among its external vendors and for its
+own products. Moreover, the current training of customer service should
+be revised.
+
+Most importantly, it should be investigates, why cancellations happen.
+If customers cancel, the reasons should be investigated. If vendors
+cancel frequently, partnership with them should be called into question.
