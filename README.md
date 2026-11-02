@@ -1,6 +1,6 @@
 # Identifying Negative Customer Experiences Through Text Classification Using Python: A Case Study of Amazon.com Reviews on Trustpilot
 Dominik Schulz
-November 01, 2026
+November 02, 2026
 
 - [1 Executive summary](#1-executive-summary)
 - [2 Data](#2-data)
@@ -46,7 +46,18 @@ updated regularly.
     approx. **12%**. Ignoring 4% of negative feedback is still
     conservative and within the set goal of achieving a recall of at
     least 0.95. In addition, a logistic regression model is relatively
-    lightweight compared to other models.
+    lightweight compared to other models. Hence, this model should be
+    the first choice for practical tests. Following up are the gradient
+    boosting approaches.
+
+4.  We identify several strong predictors of customer dissatisfaction.
+    These should be investigated more thoroughly to see, if there are
+    any systematic issues that need to be improved on.
+
+    1)  Cancellation of orders.
+    2)  Slow deliveries and delays.
+    3)  Poor product quality.
+    4)  Poor Amazon customer service.
 
 # 2 Data
 
@@ -63,12 +74,14 @@ using **Python’s Selenium** extension.
 For the sake of this project, only the available **reviews published
 since January 01, 2025** are used. This approximately gives a
 **cross-sectional overview of recent customer feedback**. Filtered this
-way, **9,688 reviews** remain for the analysis.
+way, **9,688 reviews** remain for the analysis. Even though some
+customers may have produced more than one review during this filtered
+time period, it is assumed that their reviews are approximately
+independent and about separate experiences.
 
 <details>
 
 <summary>
-
 Show Python imports
 </summary>
 
@@ -133,7 +146,6 @@ import lightgbm as lgbm
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -405,7 +417,6 @@ the described procedure thus does not produce data leakage.
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -523,7 +534,6 @@ shares of `Good` and `Bad` reviews in the total dataset.
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -551,7 +561,6 @@ gc.collect()
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -672,7 +681,6 @@ maximize `Good` class recall.
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -831,7 +839,6 @@ function.
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -858,30 +865,27 @@ print(classification_report(y_test, pred_baseline,
 ## 6.2 Logistic regression
 
 As a first, more elaborate approach, a fine-tuned regularized logistic
-regression is implemented. In the outer cross-validation, we tune the
-penalty term (`C`), the class weights (`class_weight`), and the form of
-regularization (`l1_ratio`). Additionally, we include different forms of
-token transformation in the tuning process. This way, we decide, whether
-or not to only use unigrams or both uni- and bigrams of words, and
-whther or not to do a TF-IDF transformation of the word frequencies.
-Ultimately, `C = 10`, `class_weight = 'balanced'`, `l1_ratio = 0.5`,
-`ngram_range': (1, 2)}`, and a TF-IDF transformation with sublinear text
-frequency are selected. For this first tuning, we consider the area
-under the inverse ROC curve for recall $\geq 0.95$. This way, the
-hyperparameters are selected to work particularly well in a high-recall
-setting while still allowing for some flexibility in the subsequent
-threshold selection. Hence with these hyperparameters, a second CV is
-done on the training sample, where the probability threshold is selected
-following the recall on the `Good` class. Here, we penalize cases, where
-the `Bad` class recall drops below 0.95. This way, we select the
-threshold (given the hyperparameters), for which the `Good` class is
-maximized under the condition that the `Bad` class recall is not below
-0.95.
+regression is implemented. In the first cross-validation, we tune the
+penalty term (`C`), the class weights (`class_weight`), the form of
+regularization (`l1_ratio`), whether to include a TF-IDF transformation,
+and the form of tokenization. Ultimately, `C = 10`,
+`class_weight = 'balanced'`, `l1_ratio = 0.5`, `ngram_range': (1, 2)}`,
+and a TF-IDF transformation with sublinear text frequency are selected.
+For this first tuning, we consider the area under the partial ROC curve
+as explained before. This way, the hyperparameters are selected to work
+particularly well in a high-recall setting while still allowing for some
+flexibility in the subsequent threshold selection. Hence with these
+hyperparameters, a second CV is done on the training sample, where the
+probability threshold is selected following the recall on the `Good`
+class. Here, we penalize cases, where the `Bad` class recall drops below
+0.95. This way, we select the threshold (given the hyperparameters), for
+which the `Good` class recall is maximized under the condition that the
+`Bad` class recall is not below 0.95. The selected threshold is approx.
+0.3334.
 
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -989,8 +993,8 @@ the naive approach.
 In accordance with these results, 96% of actual `Bad` messages would
 flag a manual inspection, and 18% of `Good` messages. Given the common
 proportions of these types of messages, the logistic regression means a
-**reduction** in the **flagged messages** of **approx. 12%** compared to
-the naive approach. The **cost** is that about **4%** of **`Bad`
+**reduction** in the **flagged messages** of **approx. 12.2%** compared
+to the naive approach. The **cost** is that about **4%** of **`Bad`
 messages** are **ignored**.
 
                   precision    recall  f1-score   support
@@ -1007,7 +1011,6 @@ messages** are **ignored**.
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -1080,6 +1083,16 @@ print(classification_report(y_test, nbayes_pred))
 
 </details>
 
+The best naive Bayes predictor uses uni- and bigrams for classification,
+no TF-IDF transformation and practically no oversampling. The selected
+threshold is approx. 0.0101. The model achieves an enormous **`Bad`
+class recall** of **0.99** on the test set but only a **`Good` class
+recall** of **0.4**. **Accuracy** rests at solid **0.92**. This model is
+a more conservative alternative, if almost all `Bad` messages want to be
+flagged, even if the overall reduction in manual inspection is not as
+huge. This model implies a reduction of manual inspection by roughly
+5.1%, while ignoring about 1% of `Bad` class messages.
+
                   precision    recall  f1-score   support
 
              Bad       0.93      0.99      0.96       954
@@ -1094,7 +1107,6 @@ print(classification_report(y_test, nbayes_pred))
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -1171,6 +1183,16 @@ print(classification_report(y_test, rf_pred))
 
 </details>
 
+The selected random forest model also considers both unigrams and
+bigrams and a TF-IDF transformation of the token frequency features. The
+forest consists of 800 estimators, a maximum tree depth of 40, a maximum
+number of features considered at each split of the square root of the
+number of features, and some other minor settings. The obtained
+probability threshold is about 0.2108.
+
+The forest achieves a **`Bad` class recall** of **0.95**, a **`Good`
+class recall** of **0.73**, and overall **accuracy** of **0.93**.
+
                   precision    recall  f1-score   support
 
              Bad       0.97      0.95      0.96       954
@@ -1187,7 +1209,6 @@ print(classification_report(y_test, rf_pred))
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -1261,6 +1282,19 @@ print(classification_report(y_test, boost_pred))
 
 </details>
 
+The gradient boosting approach considers both uni- and bigrams, a TF-IDF
+transformation of the features, and an oversampling strategy, where the
+share of `Good` observations is increased to that of the `Bad` class.
+Moreover, the boosted trees have a maximum depth of 10, the square root
+of the number of features as the maximum number of features considered
+at each split, 400 estimators, and a learning rate of 0.1. The
+exponential loss is considered. The selected probability threshold is
+roughly 0.2828.
+
+This model produces a **`Bad` class recall** of **0.95** on the test
+set, a **`Good` class recall** of **0.8**, and an overall **accuracy**
+of **0.93**.
+
                   precision    recall  f1-score   support
 
              Bad       0.98      0.95      0.96       954
@@ -1275,7 +1309,6 @@ print(classification_report(y_test, boost_pred))
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -1349,6 +1382,17 @@ print(classification_report(y_test, lgbm_pred))
 
 </details>
 
+For the LightGBM predictor, uni- and bigrams are considered as well as a
+TF-IDF feature transformation. The selected model uses 70% of features
+when creating a tree, a learning rate of 0.1, 800 estimators,
+regularization constants $\alpha = 1$ and $\lambda = 5$, 127 as the
+maximum number of leaves, and uses balancing of classes through weights.
+The selected probability threshold is 0.3029.
+
+Following this model, we obtain a **`Bad` class recall** of **0.96** on
+the test set, a **`Good` class recall** of **0.76**, and an overall
+accuracy of **0.94**.
+
                   precision    recall  f1-score   support
 
              Bad       0.97      0.96      0.96       954
@@ -1363,7 +1407,6 @@ print(classification_report(y_test, lgbm_pred))
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -1502,7 +1545,6 @@ case, we investigate its estimated coefficients more thoroughly.
 <details>
 
 <summary>
-
 Show Python code
 </summary>
 
@@ -1550,7 +1592,7 @@ scaled between 0.0 and 1.0, which makes the coefficient estimates
 comparable. While they do not reflect causality, the ones shown in
 <a href="#fig-feat-imp" class="quarto-xref">Figure 6.1</a> are the
 strongest predictors of the `Bad` class and hence give an indication
-about the causes for customers being dissatisfied.
+about the potential causes for customers being dissatisfied.
 
 The strongest predictor is associated with the token `cancel`, which
 could indicate either a dissatisfaction due to the order being cancelled
@@ -1568,10 +1610,11 @@ and the customers feeling lied to.
 Amazon should therefore investigate the main reasons for dissatisfaction
 more clearly. We suggest monitoring delivery times in order to find
 bottlenecks and reasons for them. Furthermore, Amazon should should
-enforce product quality control among its external vendors and for its
-own products. Moreover, the current training of customer service should
-be revised.
+enforce stricter product quality control among its external vendors and
+for its own products. Moreover, the current training of customer service
+should be revised.
 
-Most importantly, it should be investigates, why cancellations happen.
-If customers cancel, the reasons should be investigated. If vendors
-cancel frequently, partnership with them should be called into question.
+Most importantly, it should be investigated, why cancellations happen.
+If customers cancel their orders themselves, the reasons should be
+studied. If vendors cancel frequently, clarifications for this behavior
+should be given and partnership with them scrutinized.
