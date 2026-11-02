@@ -1313,6 +1313,8 @@ Since the regularized logistic regression is selected for this business case, we
 #| echo: True
 #| eval: False
 
+logit_tuned = pickle.load(open('Predictor models/logit_tuned.bin', 'rb'))
+
 logit_coef = logit_tuned.estimator_.named_steps['model'].coef_.flatten()
 feature_names = logit_tuned.estimator_.named_steps['dtm'].get_feature_names_out()
 
@@ -1327,7 +1329,7 @@ coef_df = pd.DataFrame({
     'Feature name': feature_name_small,
     'Coefficient value': np.abs(feature_coef_small)
 })
-fig, ax = plt.subplots(figsize = (6, 4))
+fig, ax = plt.subplots(figsize = (10, 4))
 coef_df.plot(kind = 'bar', x = 'Feature name', y = 'Coefficient value', ax = ax,
     legend = False, color = 'lightblue', alpha = 1, edgecolor = 'black', width = 0.6)
 ax.set_xlabel('Token');
@@ -1335,6 +1337,7 @@ ax.set_ylabel('Coefficient size');
 ax.set_title('The 50 features with the largest negative coefficients');
 ax.grid(axis = 'y');
 ax.set_axisbelow(True);
+ax.set_xticklabels(ax.get_xticklabels(), rotation = 45, ha = 'right');
 ```
 
 </details>
