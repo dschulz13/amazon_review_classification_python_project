@@ -14,8 +14,6 @@ crossref:
 
 # 1 Executive summary
 
-**Note:** this project is currently still a work in progress and will be updated regularly.
-
 1. The scores are **strongly imbalanced**, where the vast **majority** of the reviews gives a rating of **one star**.
 
 2. The **naive predictor** of simply labelling all reviews as `Bad` produces a **recall of 1.0** on the `Bad` class and **accuracy of 0.89** on the test set. This comes at the cost of poor performance on the `Good` class. This predictor implies that, in a real-world scenario, all incoming messages would have to be inspected manually.

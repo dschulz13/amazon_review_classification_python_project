@@ -25,9 +25,6 @@ November 02, 2026
 
 # 1 Executive summary
 
-**Note:** this project is currently still a work in progress and will be
-updated regularly.
-
 1.  The scores are **strongly imbalanced**, where the vast **majority**
     of the reviews gives a rating of **one star**.
 
@@ -552,7 +549,7 @@ del data_all
 gc.collect()
 ```
 
-    0
+    40
 
 </details>
 
